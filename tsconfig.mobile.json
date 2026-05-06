@@ -1,0 +1,23 @@
+{
+  "$schema": "./tsconfig.schema.json",
+  "extends": "./novel-weaver-mobile/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "noEmit": false,
+    "emitDeclarationOnly": false,
+    "outDir": "./dist",
+    "incremental": true,
+    "tsBuildInfoFile": "./dist/tsconfig.mobile.tsbuildinfo",
+    "paths": {
+      "@/*": ["./*"]
+    }
+  },
+  "include": [
+    "ChatView.mobile.tsx",
+    "App.mobile.tsx",
+    "novel-weaver-mobile/**/*"
+  ]
+}

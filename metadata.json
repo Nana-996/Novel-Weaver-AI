@@ -1,0 +1,5 @@
+{
+  "name": "Novel Weaver AI",
+  "description": "A chat-based novel writing assistant that uses AI to help you build your story chapter by chapter through natural conversation. It remembers your story, characters, and plot, acting as your dedicated writing partner.",
+  "requestFramePermissions": []
+}

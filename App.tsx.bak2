@@ -1,0 +1,689 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import Sidebar from './components/Sidebar';
+import ChatView from './components/ChatView';
+import ManuscriptView from './components/ManuscriptView';
+import ProjectsModal from './components/ProjectsModal';
+import SettingsModal from './components/SettingsModal';
+import NotesView from './components/NotesView';
+import DualNotesView from './components/DualNotesView';
+import { SparklesIcon, UndoIcon, RedoIcon, BookOpenIcon, CharacterIcon, WorldIcon } from './components/Icons';
+import type { Project, Message, Chapter, Settings, ExportFormat } from './types';
+import { createChat } from './services/geminiService';
+import { useHistoryState } from './hooks/useHistoryState';
+import type { OpenRouterChat } from './services/geminiService';
+
+// For DOCX and PDF generation from CDN
+declare const docx: any;
+declare const jspdf: any;
+
+const DEFAULT_SETTINGS: Settings = {
+  theme: 'dark',
+  fontSize: 'base',
+  ai: {
+    model: process.env.DEFAULT_AI_MODEL || 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free',
+    temperature: 0.7,
+    topK: 40,
+    topP: 0.95,
+    writingStyle: "A balance of descriptive prose and engaging dialogue.",
+    tonePreference: "A slightly serious tone with moments of levity.",
+    defaultChapterLength: 1500,
+  },
+  export: {
+    defaultFormat: 'pdf',
+  }
+};
+
+type View = 'chat' | 'manuscript' | 'character_notes' | 'plot_notes';
+
+const App: React.FC = () => {
+  const { 
+    state: projects, 
+    set: setProjects, 
+    undo, 
+    redo, 
+    canUndo, 
+    canRedo 
+  } = useHistoryState<Project[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [view, setView] = useState<View>('chat');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isProjectsModalOpen, setProjectsModalOpen] = useState(false);
+  const [isSettingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [streamingText, setStreamingText] = useState<string | null>(null);
+
+  const chatRef = useRef<OpenRouterChat | null>(null);
+  const activeProject = projects.find(p => p.id === activeProjectId) ?? null;
+  const notesSaveTimeoutRef = useRef<number | null>(null);
+
+  const [editingTitle, setEditingTitle] = useState('');
+  useEffect(() => {
+    setEditingTitle(activeProject?.title || '');
+  }, [activeProject?.title]);
+
+  // Load initial data from localStorage
+  useEffect(() => {
+    try {
+      const savedSettings = localStorage.getItem('novel-weaver-settings');
+      if (savedSettings) {
+        const parsed = JSON.parse(savedSettings);
+        setSettings(currentSettings => ({
+            ...currentSettings, 
+            ...parsed, 
+            ai: {...currentSettings.ai, ...parsed.ai},
+            export: {...currentSettings.export, ...parsed.export}
+        }));
+      }
+
+      const savedProjects = localStorage.getItem('novel-weaver-projects');
+      const initialProjects: Project[] = savedProjects ? JSON.parse(savedProjects) : [];
+      
+      if (initialProjects.length > 0) {
+        setProjects(initialProjects, true); // Initialize history without adding to past
+        const lastProjectId = localStorage.getItem('novel-weaver-last-project');
+        setActiveProjectId(lastProjectId || initialProjects[0].id);
+      } else {
+        createNewProject((newProject) => {
+            setProjects([newProject], true);
+            setActiveProjectId(newProject.id);
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load data from localStorage", error);
+      localStorage.clear();
+      createNewProject((newProject) => {
+        setProjects([newProject], true);
+        setActiveProjectId(newProject.id);
+      });
+    }
+  }, []); 
+
+  // Auto-save projects and settings
+  useEffect(() => {
+    localStorage.setItem('novel-weaver-projects', JSON.stringify(projects));
+    if (activeProjectId) {
+      localStorage.setItem('novel-weaver-last-project', activeProjectId);
+    }
+  }, [projects, activeProjectId]);
+
+  useEffect(() => {
+    localStorage.setItem('novel-weaver-settings', JSON.stringify(settings));
+    document.documentElement.classList.toggle('dark', settings.theme === 'dark');
+    const body = document.body;
+    body.classList.remove('text-sm', 'text-base', 'text-lg');
+    body.classList.add(`text-${settings.fontSize}`);
+  }, [settings]);
+
+  // Re-initialize chat when project or AI settings change
+  useEffect(() => {
+    if (activeProject) {
+      try {
+        chatRef.current = createChat({
+          history: activeProject.messages.map(m => ({
+            role: m.role,
+            parts: [{ text: m.text }]
+          })),
+          settings: settings.ai,
+        });
+      } catch (error) {
+        console.error("Could not initialize AI chat.", error);
+      }
+    }
+  }, [activeProject, settings.ai]);
+  
+  // Fix: Moved createNewProject and handleExport (with helpers) before the useEffect that uses them.
+  const createNewProject = useCallback((callback?: (newProject: Project) => void) => {
+    const newProject: Project = {
+      id: `proj-${Date.now()}`,
+      title: 'Untitled Novel',
+      createdAt: Date.now(),
+      messages: [],
+      manuscript: [],
+      wordCount: 0,
+      characterNotes: '',
+      plotNotes: '',
+      aiCharacterNotes: '',
+      aiPlotNotes: '',
+    };
+    if (callback) {
+        callback(newProject);
+    } else {
+        setProjects([...projects, newProject]);
+        setActiveProjectId(newProject.id);
+        setView('chat');
+    }
+    return newProject;
+  }, [projects, setProjects]);
+
+  const exportAsTxt = (project: Project) => {
+    const titlePage = `${project.title}\n\nWord Count: ${project.wordCount}\n\n---\n\n`;
+    const manuscriptText = project.manuscript.map(c => `${c.title}\n\n${c.content}`).join('\n\n---\n\n');
+    const blob = new Blob([titlePage + manuscriptText], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${project.title.replace(/\s+/g, '_')}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  
+  const exportAsPdf = (project: Project) => {
+    const { jsPDF } = jspdf;
+    const doc = new jsPDF();
+    
+    // Title Page
+    doc.setFontSize(22);
+    doc.text(project.title, 105, 140, { align: 'center' });
+    doc.setFontSize(12);
+    doc.text(`Word Count: ${project.wordCount}`, 105, 150, { align: 'center' });
+
+    // Content
+    let y = 0;
+    project.manuscript.forEach(chapter => {
+      doc.addPage();
+      y = 20; // Reset y for new page
+      doc.setFontSize(18);
+      doc.text(chapter.title, 105, y, { align: 'center' });
+      y += 20;
+      doc.setFontSize(12);
+      const lines = doc.splitTextToSize(chapter.content, 180);
+      lines.forEach((line: string) => {
+        if (y > 280) { 
+          doc.addPage();
+          y = 20;
+        }
+        doc.text(line, 15, y);
+        y += 7;
+      });
+    });
+    
+    // Page Numbers
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 2; i <= pageCount; i++) { // Start from page 2 (first chapter page)
+        doc.setPage(i);
+        doc.setFontSize(10);
+        doc.text(`Page ${i - 1}`, 105, 290, { align: 'center' });
+    }
+
+    doc.save(`${project.title.replace(/\s+/g, '_')}.pdf`);
+  };
+
+  const exportAsDocx = (project: Project) => {
+    const { Document, Packer, Paragraph, TextRun, PageBreak, AlignmentType, HeadingLevel } = docx;
+    const doc = new Document({
+      sections: [{
+        children: [
+          new Paragraph({ text: project.title, heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER }),
+          new Paragraph({ text: `Word Count: ${project.wordCount}`, alignment: AlignmentType.CENTER }),
+          ...project.manuscript.flatMap(chapter => [
+            new Paragraph({ children: [new PageBreak()] }),
+            new Paragraph({ text: chapter.title, heading: HeadingLevel.HEADING_1, alignment: AlignmentType.CENTER }),
+            ...chapter.content.split('\n').filter(line => line.trim() !== '').map(line => new Paragraph({ text: line }))
+          ])
+        ],
+      }],
+    });
+    Packer.toBlob(doc).then(blob => {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${project.title.replace(/\s+/g, '_')}.docx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+  };
+
+  const handleExport = useCallback(() => {
+    if (!activeProject || activeProject.manuscript.length === 0) {
+      alert("Manuscript is empty.");
+      return;
+    }
+    const format = prompt("Export as: TXT, PDF, or DOCX?", settings.export.defaultFormat.toUpperCase());
+    switch (format?.toLowerCase()) {
+      case 'txt': exportAsTxt(activeProject); break;
+      case 'pdf': exportAsPdf(activeProject); break;
+      case 'docx': exportAsDocx(activeProject); break;
+      default: break; // User cancelled
+    }
+  }, [activeProject, settings.export.defaultFormat]);
+  
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore shortcuts if an input field is focused
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.metaKey || e.ctrlKey) {
+        switch (e.key) {
+          case 'z':
+            e.preventDefault();
+            e.shiftKey ? redo() : undo();
+            break;
+          case 'n':
+            e.preventDefault();
+            createNewProject();
+            break;
+          case 'e':
+            e.preventDefault();
+            handleExport();
+            break;
+          case 'm':
+            e.preventDefault();
+            setView(v => v === 'manuscript' ? 'chat' : 'manuscript');
+            break;
+          case ',':
+            e.preventDefault();
+            setSettingsModalOpen(true);
+            break;
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [undo, redo, handleExport, createNewProject]);
+
+  const handleDeleteProject = (projectId: string) => {
+      if (!window.confirm("Are you sure you want to permanently delete this project?")) return;
+      
+      const remainingProjects = projects.filter(p => p.id !== projectId);
+
+      if (projectId === activeProjectId) {
+          if (remainingProjects.length > 0) {
+              const projectIndex = projects.findIndex(p => p.id === projectId);
+              const newActiveIndex = Math.max(0, projectIndex - 1);
+              setActiveProjectId(remainingProjects[newActiveIndex].id);
+          } else {
+              createNewProject((newProject) => {
+                  setProjects([newProject]);
+                  setActiveProjectId(newProject.id);
+              });
+              return;
+          }
+      }
+      setProjects(remainingProjects);
+  };
+
+  const extractAINotes = useCallback((messages: Message[]): { characterNotes: string, plotNotes: string } => {
+    let characterNotes = '';
+    let plotNotes = '';
+    
+    // Look for AI-generated notes in the conversation
+    messages.forEach(message => {
+      if (message.role === 'model') {
+        // Extract character notes
+        const charNotesRegex = /\[AI Character Notes\]([\s\S]*?)(?=\[|$)/gi;
+        let charMatch;
+        while ((charMatch = charNotesRegex.exec(message.text)) !== null) {
+          const content = charMatch[1].trim();
+          if (content && !characterNotes.includes(content)) {
+            characterNotes += content + '\n\n';
+          }
+        }
+        
+        // Extract plot notes
+        const plotNotesRegex = /\[AI Plot Notes\]([\s\S]*?)(?=\[|$)/gi;
+        let plotMatch;
+        while ((plotMatch = plotNotesRegex.exec(message.text)) !== null) {
+          const content = plotMatch[1].trim();
+          if (content && !plotNotes.includes(content)) {
+            plotNotes += content + '\n\n';
+          }
+        }
+      }
+    });
+    
+    return { characterNotes: characterNotes.trim(), plotNotes: plotNotes.trim() };
+  }, []);
+
+  const rebuildManuscript = useCallback((projectsToUpdate: Project[], currentProjectId: string | null): Project[] => {
+    return projectsToUpdate.map(p => {
+        if (p.id !== currentProjectId) return p;
+        const newManuscriptMap = new Map<string, Chapter>();
+        // Updated regex to be more specific and avoid matching notes
+        const chapterRegex = /^(Chapter\s+\d+[\s\S]*?)(?=
+
+\[|$|
+
+Chapter\s+\d+)/i;
+
+        p.messages.forEach(message => {
+            if (message.role === 'model') {
+                // Remove any notes sections before processing
+                const cleanText = message.text
+                    .replace(/\[Author's Notes - Refer to these for all responses\][\s\S]*?\[User Prompt\]:\n?/, '')
+                    .replace(/\[AI Character Notes\][\s\S]*?(?=\[AI Plot Notes\]|$)/gi, '')
+                    .replace(/\[AI Plot Notes\][\s\S]*?(?=\[Author's Notes\]|$)/gi, '');
+                
+                const match = cleanText.match(chapterRegex);
+                if (match) {
+                    const lines = match[1].split('\n');
+                    const title = lines[0].trim();
+                    const content = lines.slice(1).join('\n').trim();
+                    if (title && content) newManuscriptMap.set(title, { title, content });
+                }
+            }
+        });
+        const newManuscript = Array.from(newManuscriptMap.values());
+        // Improved word count calculation
+        const newWordCount = newManuscript.reduce((sum, chap) => sum + (chap.content.match(/\S+/g) || []).length, 0);
+        
+        // Extract AI notes from messages
+        const aiNotes = extractAINotes(p.messages);
+        
+        return { ...p, manuscript: newManuscript, wordCount: newWordCount, aiCharacterNotes: aiNotes.characterNotes, aiPlotNotes: aiNotes.plotNotes };
+    });
+  }, [extractAINotes]);
+
+  const handleRegenerateMessage = async (messageId: string, model: string) => {
+    if (!activeProject || !chatRef.current) return;
+    
+    // Find the message to regenerate
+    const messageToRegenerate = activeProject.messages.find(m => m.id === messageId);
+    if (!messageToRegenerate) return;
+    
+    // Find the previous user message that led to this AI response
+    const messageIndex = activeProject.messages.findIndex(m => m.id === messageId);
+    if (messageIndex <= 0) return;
+    
+    // Get the user message that came before this AI response
+    const userMessage = activeProject.messages[messageIndex - 1];
+    if (userMessage.role !== 'user') return;
+    
+    // Set loading state
+    setIsLoading(true);
+    setStreamingText('');
+    
+    // Create a new chat with the selected model
+    let newChat;
+    try {
+      newChat = createChat({
+        history: activeProject.messages.slice(0, messageIndex - 1).map(m => ({
+          role: m.role,
+          parts: [{ text: m.text }]
+        })),
+        settings: {
+          ...settings.ai,
+          model: model
+        },
+      });
+    } catch (error) {
+      console.error("Could not initialize AI chat with selected model.", error);
+      setIsLoading(false);
+      setStreamingText(null);
+      return;
+    }
+    
+    // Add context prefix if needed
+    let contextPrefix = '';
+    const hasUserNotes = activeProject.characterNotes.trim() || activeProject.plotNotes.trim();
+    const hasAINotes = activeProject.aiCharacterNotes.trim() || activeProject.aiPlotNotes.trim();
+    
+    if (hasUserNotes || hasAINotes) {
+        contextPrefix = `[Author's Notes - Refer to these for all responses]\n`;
+        
+        if (hasUserNotes) {
+            contextPrefix += `<user_character_notes>\n${activeProject.characterNotes}\n</user_character_notes>\n`;
+            contextPrefix += `<user_plot_notes>\n${activeProject.plotNotes}\n</user_plot_notes>\n`;
+        }
+        
+        if (hasAINotes) {
+            contextPrefix += `<ai_character_notes>\n${activeProject.aiCharacterNotes}\n</ai_character_notes>\n`;
+            contextPrefix += `<ai_plot_notes>\n${activeProject.aiPlotNotes}\n</ai_plot_notes>\n`;
+        }
+        
+        contextPrefix += `\n[User Prompt]:\n`;
+    }
+    
+    try {
+        const stream = await newChat.sendMessageStream({ message: contextPrefix + userMessage.text });
+        let fullResponse = '';
+        for await (const chunk of stream) {
+            fullResponse += chunk.text;
+            setStreamingText(fullResponse);
+        }
+        
+        // Create the new model message
+        const newModelMessage: Message = { 
+          id: messageId, // Keep the same ID to replace the message
+          role: 'model', 
+          text: fullResponse 
+        };
+        
+        // Update the messages array with the new response
+        const updatedMessages = [...activeProject.messages];
+        updatedMessages[messageIndex] = newModelMessage;
+        
+        // Update the project with the new messages
+        const updatedProjects = projects.map(p => 
+          p.id === activeProjectId 
+            ? { ...p, messages: updatedMessages } 
+            : p
+        );
+        
+        setProjects(rebuildManuscript(updatedProjects, activeProjectId));
+    } catch (error) {
+        console.error("OpenRouter API Error:", error);
+        const errorMessage: Message = { 
+          id: messageId, 
+          role: 'model', 
+          text: `Sorry, I encountered an error while regenerating the response: ${error.message}. Please try again.` 
+        };
+
+        // Update the messages array with the error message
+        const updatedMessages = [...activeProject.messages];
+        updatedMessages[messageIndex] = errorMessage;
+        
+        // Update the project with the error message
+        const updatedProjects = projects.map(p => 
+          p.id === activeProjectId 
+            ? { ...p, messages: updatedMessages } 
+            : p
+        );
+        
+        setProjects(updatedProjects);
+    } finally {
+        setIsLoading(false);
+        setStreamingText(null);
+    }
+  };
+
+  const handleEditMessage = (messageId: string, newText: string) => {
+    if (!activeProjectId) return;
+    const projectsWithEdit = projects.map(p => p.id === activeProjectId ? { ...p, messages: p.messages.map(m => m.id === messageId ? { ...m, text: newText } : m) } : p);
+    setProjects(rebuildManuscript(projectsWithEdit, activeProjectId));
+  };
+
+  const handleSendMessage = async (text: string) => {
+    if (!activeProject || !chatRef.current) return;
+    const userMessage: Message = { id: `msg-${Date.now()}`, role: 'user', text };
+    
+    let currentProjects = projects.map(p => p.id === activeProjectId ? { ...p, messages: [...p.messages, userMessage] } : p);
+    setProjects(currentProjects, false, true); // Update present state without adding to history yet
+
+    setIsLoading(true);
+    setStreamingText('');
+
+    // Add context prefix if needed
+    let contextPrefix = '';
+    const hasUserNotes = activeProject.characterNotes.trim() || activeProject.plotNotes.trim();
+    const hasAINotes = activeProject.aiCharacterNotes.trim() || activeProject.aiPlotNotes.trim();
+    
+    // Only add context prefix for creative writing prompts, not for general conversation
+    // Check if the message is likely a creative writing prompt
+    const isCreativePrompt = text.toLowerCase().includes('write') || 
+                             text.toLowerCase().includes('chapter') || 
+                             text.toLowerCase().includes('story') || 
+                             text.toLowerCase().includes('novel') || 
+                             text.toLowerCase().includes('character') || 
+                             text.toLowerCase().includes('plot');
+    
+    if (isCreativePrompt && (hasUserNotes || hasAINotes)) {
+        contextPrefix = `[Author's Notes - Refer to these for all responses]\n`;
+        
+        if (hasUserNotes) {
+            contextPrefix += `<user_character_notes>\n${activeProject.characterNotes}\n</user_character_notes>\n`;
+            contextPrefix += `<user_plot_notes>\n${activeProject.plotNotes}\n</user_plot_notes>\n`;
+        }
+        
+        if (hasAINotes) {
+            contextPrefix += `<ai_character_notes>\n${activeProject.aiCharacterNotes}\n</ai_character_notes>\n`;
+            contextPrefix += `<ai_plot_notes>\n${activeProject.aiPlotNotes}\n</ai_plot_notes>\n`;
+        }
+        
+        contextPrefix += `\n[User Prompt]:\n`;
+    }
+
+    try {
+        const stream = await chatRef.current.sendMessageStream({ message: contextPrefix + text });
+        let fullResponse = '';
+        for await (const chunk of stream) {
+            fullResponse += chunk.text;
+            setStreamingText(fullResponse);
+        }
+        const modelMessage: Message = { id: `msg-${Date.now() + 1}`, role: 'model', text: fullResponse };
+        currentProjects = currentProjects.map(p => p.id === activeProjectId ? { ...p, messages: [...p.messages, modelMessage] } : p);
+        setProjects(rebuildManuscript(currentProjects, activeProjectId));
+    } catch (error) {
+        console.error("OpenRouter API Error:", error);
+        const errorMessage: Message = { id: `msg-${Date.now() + 1}`, role: 'model', text: `Sorry, I encountered an error: ${error.message}. Please try again.` };
+        currentProjects = currentProjects.map(p => p.id === activeProjectId ? { ...p, messages: [...p.messages, errorMessage] } : p);
+        setProjects(currentProjects);
+    } finally {
+        setIsLoading(false);
+        setStreamingText(null);
+    }
+  };
+
+  const handleTitleBlur = () => {
+    if (activeProject && editingTitle.trim() && editingTitle !== activeProject.title) {
+        setProjects(projects.map(p => p.id === activeProjectId ? { ...p, title: editingTitle } : p));
+    } else {
+        setEditingTitle(activeProject?.title || '');
+    }
+  };
+  
+  const handleNotesChange = (type: 'character' | 'plot', content: string) => {
+      if (!activeProjectId) return;
+      
+      if (notesSaveTimeoutRef.current) clearTimeout(notesSaveTimeoutRef.current);
+      
+      const key = type === 'character' ? 'characterNotes' : 'plotNotes';
+      // Update present state for responsive UI
+      setProjects(projects.map(p => p.id === activeProjectId ? { ...p, [key]: content } : p), false, true);
+      
+      // Debounce the save to history
+      notesSaveTimeoutRef.current = window.setTimeout(() => {
+          setProjects(projects.map(p => p.id === activeProjectId ? { ...p, [key]: content } : p));
+      }, 1500);
+  };
+  
+  const handleSaveNotes = () => {
+      if (notesSaveTimeoutRef.current) {
+          clearTimeout(notesSaveTimeoutRef.current);
+          notesSaveTimeoutRef.current = null;
+          setProjects(projects); // This forces the debounced change to commit to history now
+      }
+  };
+
+
+  const renderView = () => {
+    if (!activeProject) {
+        return <div className="flex-1 flex items-center justify-center"><p className="text-text-secondary dark:text-dark-text-secondary">Loading project...</p></div>;
+    }
+    switch(view) {
+        case 'chat':
+            return <ChatView 
+              messages={activeProject.messages} 
+              onSendMessage={handleSendMessage} 
+              isLoading={isLoading} 
+              onEditMessage={handleEditMessage} 
+              onRegenerateMessage={handleRegenerateMessage}
+              streamingText={streamingText} 
+              onViewManuscript={() => setView('manuscript')}
+              currentModel={settings.ai.model}
+            />;
+        case 'manuscript':
+            return <ManuscriptView project={activeProject} />;
+        case 'character_notes':
+            return <DualNotesView 
+              title="Character Notes" 
+              userContent={activeProject.characterNotes} 
+              aiContent={activeProject.aiCharacterNotes}
+              onUserContentChange={(c) => handleNotesChange('character', c)} 
+              onSave={handleSaveNotes} 
+              userPlaceholder="Optional & flexible notes. Add characters AS you discover them. No mandatory fields, just jot down what matters. e.g., Sarah - 30s, marketing, has trust issues..." 
+              aiPlaceholder="AI-generated character notes will appear here as you have conversations..."
+              noteType="character"
+            />;
+        case 'plot_notes':
+            return <DualNotesView 
+              title="Plot & World Notes" 
+              userContent={activeProject.plotNotes} 
+              aiContent={activeProject.aiPlotNotes}
+              onUserContentChange={(c) => handleNotesChange('plot', c)} 
+              onSave={handleSaveNotes} 
+              userPlaceholder="Total freeform notes for your plot threads, world-building details, and key events. These grow WITH your story, not before it."
+              aiPlaceholder="AI-generated plot notes will appear here as you have conversations..."
+              noteType="plot"
+            />;
+        default:
+            return null;
+    }
+  }
+
+  const TabButton = ({ targetView, icon, label }: { targetView: View, icon: React.ReactNode, label: string}) => (
+    <button onClick={() => setView(targetView)} className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors ${view === targetView ? 'bg-bubble-user dark:bg-dark-bubble-user text-primary' : 'hover:bg-bubble-ai dark:hover:bg-dark-bubble-ai text-text-secondary'}`}>
+        {icon} <span>{label}</span>
+    </button>
+  );
+
+  return (
+    <div className="h-screen w-screen flex bg-base dark:bg-dark-base font-sans">
+      <Sidebar onNewNovel={() => createNewProject()} onExport={handleExport} onProjects={() => setProjectsModalOpen(true)} onSettings={() => setSettingsModalOpen(true)}/>
+      <main className="flex-1 flex flex-col">
+        <header className="flex items-center justify-between p-2 border-b border-border-color dark:border-dark-border-color gap-2">
+          <div className="flex items-center gap-2 flex-shrink min-w-0">
+             <h1 className="text-lg font-bold text-text-primary dark:text-dark-text-primary flex-shrink-0 hidden sm:block">Novel Weaver AI</h1>
+             <span className="text-gray-300 dark:text-gray-700 hidden sm:block">|</span>
+            <input type="text" value={editingTitle} onChange={(e) => setEditingTitle(e.target.value)} onBlur={handleTitleBlur} disabled={!activeProject} className="bg-transparent text-lg font-semibold text-text-primary dark:text-dark-text-primary focus:outline-none focus:ring-1 focus:ring-primary rounded px-2 py-1 w-full min-w-0 truncate" />
+            <span className="text-sm text-text-secondary dark:text-dark-text-secondary hidden md:block flex-shrink-0">{activeProject ? `(${activeProject.wordCount} words)` : ''}</span>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+             <div className="relative group">
+                <select
+                  value={settings.ai.model}
+                  onChange={(e) => setSettings(s => ({...s, ai: {...s.ai, model: e.target.value }}))}
+                  className="bg-surface dark:bg-dark-surface border border-border-color dark:border-dark-border-color rounded-md text-sm px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary appearance-none pr-8"
+                  aria-label="Select AI Model"
+                >
+                    <option value="cognitivecomputations/dolphin-mistral-24b-venice-edition:free">Dolphin-Mistral 24B</option>
+                    <option value="deepseek/deepseek-chat-v3.1:free">DeepSeek Chat v3.1</option>
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center px-1 pointer-events-none">
+                  <svg className="w-4 h-4 text-text-secondary dark:text-dark-text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                  </svg>
+                </div>
+              </div>
+            <div className="p-1 bg-surface dark:bg-dark-surface rounded-lg border border-border-color dark:border-dark-border-color flex items-center gap-1">
+                <TabButton targetView="chat" icon={<SparklesIcon className="w-4 h-4" />} label="Chat" />
+                <TabButton targetView="manuscript" icon={<BookOpenIcon className="w-4 h-4" />} label="Manuscript" />
+                <TabButton targetView="character_notes" icon={<CharacterIcon className="w-4 h-4" />} label="Characters" />
+                <TabButton targetView="plot_notes" icon={<WorldIcon className="w-4 h-4" />} label="Plot" />
+            </div>
+            <button onClick={undo} disabled={!canUndo} title="Undo (Cmd+Z)" className="p-1.5 rounded disabled:opacity-50 disabled:cursor-not-allowed text-text-secondary hover:bg-bubble-ai dark:hover:bg-dark-bubble-ai transition-colors"><UndoIcon className="w-5 h-5" /></button>
+            <button onClick={redo} disabled={!canRedo} title="Redo (Cmd+Shift+Z)" className="p-1.5 rounded disabled:opacity-50 disabled:cursor-not-allowed text-text-secondary hover:bg-bubble-ai dark:hover:bg-dark-bubble-ai transition-colors"><RedoIcon className="w-5 h-5" /></button>
+          </div>
+        </header>
+        
+        {renderView()}
+
+      </main>
+
+      <ProjectsModal isOpen={isProjectsModalOpen} onClose={() => setProjectsModalOpen(false)} projects={projects} activeProjectId={activeProjectId} onSwitchProject={(id) => { setActiveProjectId(id); setProjectsModalOpen(false); setView('chat'); }} onDeleteProject={handleDeleteProject} />
+      <SettingsModal isOpen={isSettingsModalOpen} onClose={() => setSettingsModalOpen(false)} settings={settings} onSave={(newSettings) => { setSettings(newSettings); setSettingsModalOpen(false); }}/>
+    </div>
+  );
+};
+
+export default App;
