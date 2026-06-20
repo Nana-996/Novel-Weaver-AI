@@ -1,9 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { Message, Project } from '../types';
-import { SendIcon, SparklesIcon, PencilIcon, RefreshIcon } from './Icons';
+import type { ThinkingStatus } from '../App';
+import { SendIcon, SparklesIcon, PencilIcon, RefreshIcon, StopIcon } from './Icons';
 import WelcomeScreen from './WelcomeScreen';
 import MarkdownRenderer from './MarkdownRenderer';
 import SmartSuggestions from './SmartSuggestions';
+
+const formatModelName = (modelId: string) => {
+  if (!modelId) return '';
+  if (modelId.includes('/')) {
+    return modelId.split('/').pop()?.split(':')[0]?.toUpperCase() || modelId;
+  }
+  return modelId.replace('gemini-', 'Gemini ').replace('claude-', 'Claude ');
+};
 
 interface ChatViewProps {
   messages: Message[];
@@ -11,7 +20,9 @@ interface ChatViewProps {
   isLoading: boolean;
   onEditMessage: (messageId: string, newText: string) => void;
   onRegenerateMessage: (messageId: string, model: string) => Promise<void>;
+  onStopGenerating: () => void;
   streamingText: string | null;
+  thinkingStatus: ThinkingStatus | null;
   currentModel: string;
   project?: Project;
 }
@@ -22,16 +33,28 @@ const ChatView: React.FC<ChatViewProps> = ({
   isLoading,
   onEditMessage,
   onRegenerateMessage,
+  onStopGenerating,
   streamingText,
+  thinkingStatus,
   currentModel,
   project
 }) => {
   const [input, setInput] = useState('');
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingText, setEditingText] = useState('');
+  const [elapsed, setElapsed] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLTextAreaElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Elapsed time tracker
+  useEffect(() => {
+    if (!thinkingStatus) { setElapsed(0); return; }
+    const tick = () => setElapsed(Math.floor((Date.now() - thinkingStatus.startedAt) / 1000));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [thinkingStatus?.startedAt, thinkingStatus === null]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -132,7 +155,7 @@ const ChatView: React.FC<ChatViewProps> = ({
                   <div className="group">
                     {/* Companion indicator */}
                     <div className="flex items-center gap-2 mb-2">
-                      <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-warm/12 to-sage/8 border border-warm/10 flex items-center justify-center">
+                      <div className="w-6 h-6 rounded-lg bg-ink-200 border border-ink-400 flex items-center justify-center">
                         <SparklesIcon className="w-3.5 h-3.5 text-warm/80" />
                       </div>
                       <span className="text-[11px] text-parchment-dim/60 font-medium tracking-wide">Novel Weaver</span>
@@ -172,11 +195,16 @@ const ChatView: React.FC<ChatViewProps> = ({
             {streamingText && (
               <div className="message-appear">
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-warm/12 to-sage/8 border border-warm/10 flex items-center justify-center animate-pulse-soft">
+                  <div className="w-6 h-6 rounded-lg bg-ink-200 border border-ink-400 flex items-center justify-center animate-pulse-soft">
                     <SparklesIcon className="w-3.5 h-3.5 text-warm/80" />
                   </div>
                   <span className="text-[11px] text-parchment-dim/60 font-medium tracking-wide">Novel Weaver</span>
                   <span className="text-[10px] text-warm/40 animate-pulse">writing...</span>
+                  {thinkingStatus && thinkingStatus.phase === 'streaming' && (
+                    <span className="text-[10px] text-parchment-faint/50 ml-auto font-mono">
+                      {thinkingStatus.wordCount} words · {elapsed}s
+                    </span>
+                  )}
                 </div>
                 <div className="pl-8 prose-response">
                   <MarkdownRenderer text={streamingText} />
@@ -184,11 +212,90 @@ const ChatView: React.FC<ChatViewProps> = ({
               </div>
             )}
 
-            {/* Thinking indicator */}
-            {isLoading && !streamingText && (
+            {/* Thinking indicator — detailed phases */}
+            {isLoading && !streamingText && thinkingStatus && (
               <div className="message-appear">
                 <div className="flex items-center gap-2 mb-2">
-                  <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-warm/12 to-sage/8 border border-warm/10 flex items-center justify-center animate-pulse-soft">
+                  <div className={`w-6 h-6 rounded-lg border flex items-center justify-center ${
+                    thinkingStatus.phase === 'stalled'
+                      ? 'bg-red-500/10 border-red-500/30'
+                      : 'bg-ink-200 border-ink-400 animate-pulse-soft'
+                  }`}>
+                    <SparklesIcon className={`w-3.5 h-3.5 ${
+                      thinkingStatus.phase === 'stalled' ? 'text-red-500/80' : 'text-warm/80'
+                    }`} />
+                  </div>
+                  <span className="text-[11px] text-parchment-dim/60 font-medium tracking-wide">Novel Weaver</span>
+                </div>
+                <div className="pl-8">
+                  <div className="rounded-xl bg-ink-100/60 border border-ink-400/10 px-4 py-3 max-w-md">
+                    {/* Phase indicator */}
+                    <div className="flex items-center gap-2.5">
+                      {thinkingStatus.phase !== 'stalled' && (
+                        <div className="flex items-center gap-1.5">
+                          <div className="h-1.5 w-1.5 bg-warm/40 rounded-full typing-dot"></div>
+                          <div className="h-1.5 w-1.5 bg-warm/40 rounded-full typing-dot"></div>
+                          <div className="h-1.5 w-1.5 bg-warm/40 rounded-full typing-dot"></div>
+                        </div>
+                      )}
+                      {thinkingStatus.phase === 'stalled' && (
+                        <div className="w-4 h-4 rounded-full border-2 border-red-500/50 border-t-red-500 animate-spin flex-shrink-0"></div>
+                      )}
+                      <span className={`text-xs ${
+                        thinkingStatus.phase === 'stalled' ? 'text-red-500/80' : 'text-parchment-faint/60'
+                      }`}>
+                        {thinkingStatus.phase === 'preparing' && 'Gathering story context...'}
+                        {thinkingStatus.phase === 'connecting' && ((thinkingStatus as any).downloadProgress || `Loading ${formatModelName(thinkingStatus.model)}...`)}
+                        {thinkingStatus.phase === 'waiting' && 'Waiting for the AI to start writing...'}
+                        {thinkingStatus.phase === 'retrying' && `Retrying (attempt ${thinkingStatus.retryCount + 1})...`}
+                        {thinkingStatus.phase === 'stalled' && 'Connection seems stuck — no response received'}
+                      </span>
+                    </div>
+
+                    {/* Timer + model info */}
+                    <div className="flex items-center gap-3 mt-2.5 pt-2 border-t border-ink-400/8">
+                      <span className="text-[10px] text-parchment-faint/40 font-mono tabular-nums">
+                        ⏱ {elapsed}s
+                      </span>
+                      <span className="text-[10px] text-parchment-faint/30">
+                        {formatModelName(thinkingStatus.model)}
+                      </span>
+                      {thinkingStatus.phase === 'stalled' && (
+                        <span className="text-[10px] text-red-500/60 ml-auto">
+                          Try stopping & resending
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Progress steps */}
+                    <div className="flex items-center gap-1.5 mt-2">
+                      {(['preparing', 'connecting', 'waiting', 'streaming'] as const).map((step, i) => {
+                        const phaseOrder = { preparing: 0, connecting: 1, waiting: 2, streaming: 3, retrying: 2, stalled: 2 };
+                        const currentOrder = phaseOrder[thinkingStatus.phase || 'preparing'];
+                        const stepOrder = i;
+                        const isDone = stepOrder < currentOrder;
+                        const isCurrent = stepOrder === currentOrder;
+                        return (
+                          <div key={step} className="flex items-center gap-1.5">
+                            <div className={`h-1 rounded-full transition-all duration-500 ${
+                              isDone ? 'w-6 bg-warm/50' :
+                              isCurrent ? 'w-6 bg-warm/30 animate-pulse' :
+                              'w-4 bg-ink-300/30'
+                            }`} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Fallback simple loading when no thinking status */}
+            {isLoading && !streamingText && !thinkingStatus && (
+              <div className="message-appear">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 rounded-lg bg-ink-200 border border-ink-400 flex items-center justify-center animate-pulse-soft">
                     <SparklesIcon className="w-3.5 h-3.5 text-warm/80" />
                   </div>
                   <span className="text-[11px] text-parchment-dim/60 font-medium tracking-wide">Novel Weaver</span>
@@ -229,9 +336,9 @@ const ChatView: React.FC<ChatViewProps> = ({
           </div>
 
           {/* Composer */}
-          <div className="flex-shrink-0 px-4 py-3 md:px-6 lg:px-12 md:pb-4 border-t border-ink-400/8 bg-ink-50/10 backdrop-blur-sm">
+          <div className="flex-shrink-0 px-4 py-3 md:px-6 lg:px-12 md:pb-4 border-t border-ink-400/8 bg-ink">
             <div className="max-w-3xl mx-auto">
-              <div className="bg-ink-100/60 backdrop-blur-xl rounded-2xl border border-ink-400/15 hover:border-warm/15 input-warm transition-all shadow-xl shadow-black/20 flex items-end p-1.5">
+              <div className="bg-ink-100 rounded-2xl border border-ink-400/15 hover:border-warm/15 input-warm transition-all flex items-end p-1.5">
                 <textarea
                   ref={inputRef}
                   value={input}
@@ -246,14 +353,26 @@ const ChatView: React.FC<ChatViewProps> = ({
                     target.style.height = `${target.scrollHeight}px`;
                   }}
                 />
-                <button
-                  onClick={handleSend}
-                  disabled={isLoading || !input.trim()}
-                  className="bg-warm hover:bg-warm-light disabled:opacity-25 disabled:hover:bg-warm text-ink rounded-xl p-2.5 transition-all duration-200 hover:scale-105 disabled:hover:scale-100 flex-shrink-0"
-                  title="Send"
-                >
-                  <SendIcon className="w-4 h-4" />
-                </button>
+                {isLoading ? (
+                  <button
+                    onClick={onStopGenerating}
+                    className="bg-red-500/80 hover:bg-red-500 text-white rounded-xl p-2.5 transition-all duration-200 hover:scale-105 flex-shrink-0 animate-pulse-soft"
+                    title="Stop generating"
+                    id="btn-stop"
+                  >
+                    <StopIcon className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSend}
+                    disabled={!input.trim()}
+                    className="bg-warm hover:bg-warm-light disabled:opacity-25 disabled:hover:bg-warm text-ink rounded-xl p-2.5 transition-all duration-200 hover:scale-105 disabled:hover:scale-100 flex-shrink-0"
+                    title="Send"
+                    id="btn-send"
+                  >
+                    <SendIcon className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
           </div>

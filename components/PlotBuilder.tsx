@@ -56,7 +56,7 @@ const PlotBuilder: React.FC<PlotBuilderProps> = ({
             <div className="flex-1 flex flex-col lg:flex-row gap-6 min-h-0">
                 {/* Left Panel: Concept & Refinement */}
                 <div className="flex-1 flex flex-col min-h-0 bg-transparent rounded-xl border border-border-color dark:border-dark-border-color/50 relative overflow-hidden group">
-                    <div className="flex items-center border-b border-border-color dark:border-dark-border-color/50 bg-white/5 dark:bg-black/5 backdrop-blur-sm">
+                    <div className="flex items-center border-b border-border-color dark:border-dark-border-color/50 bg-white/5 dark:bg-black/5">
                         <button
                             onClick={() => setActiveTab('editor')}
                             className={`px-6 py-4 text-sm font-sans tracking-wide transition-all ${activeTab === 'editor' ? 'text-primary border-b-2 border-primary bg-primary/5' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'}`}

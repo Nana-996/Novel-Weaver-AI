@@ -16,7 +16,7 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ onNewNovel, onExport, onProjects, onSettings }) => {
   return (
-    <div className="w-[60px] bg-surface dark:bg-dark-surface/50 backdrop-blur-md flex flex-col items-center justify-between py-6 border-r border-border-color dark:border-dark-border-color z-20">
+    <div className="w-[60px] bg-surface dark:bg-dark-surface/50 flex flex-col items-center justify-between py-6 border-r border-border-color dark:border-dark-border-color z-20">
       <div className="flex flex-col items-center space-y-8">
         <button className="text-primary hover:text-primary-hover transition-colors transform hover:scale-105" title="Menu">
           <MenuIcon className="w-6 h-6" />

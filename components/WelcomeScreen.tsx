@@ -50,7 +50,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSend, isLoading }) => {
             <div className="relative z-10 flex flex-col items-center w-full max-w-2xl">
                 {/* Companion presence */}
                 <div className="relative mb-4 flex-shrink-0">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-warm/15 to-sage/10 border border-warm/15 flex items-center justify-center shadow-lg shadow-warm/5">
+                    <div className="w-12 h-12 rounded-2xl bg-ink-200 border border-ink-400 flex items-center justify-center">
                         <SparklesIcon className="w-6 h-6 text-warm" />
                     </div>
                     <div className="absolute -inset-4 rounded-3xl bg-warm/5 blur-2xl -z-10" />
@@ -66,7 +66,7 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSend, isLoading }) => {
 
                 {/* The Hero Input — this IS the main action */}
                 <div className="w-full mb-4 flex-shrink-0">
-                    <div className="bg-ink-100/60 backdrop-blur-xl rounded-2xl border border-ink-400/20 hover:border-warm/20 input-warm transition-all shadow-2xl shadow-black/20">
+                    <div className="bg-ink-100 rounded-2xl border border-ink-400/20 hover:border-warm/20 input-warm transition-all">
                         <textarea
                             ref={inputRef}
                             value={input}

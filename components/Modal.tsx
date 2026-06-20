@@ -22,7 +22,7 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, footer 
 
   return (
     <div
-      className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 overlay-enter"
+      className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4 overlay-enter"
       role="dialog"
       aria-modal="true"
       onClick={onClose}

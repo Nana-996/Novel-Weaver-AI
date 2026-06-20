@@ -11,23 +11,14 @@ interface SettingsModalProps {
 
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, onSave }) => {
   const [local, setLocal] = useState<Settings>(settings);
-  const [apiKey, setApiKey] = useState('');
-  const [showKey, setShowKey] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setLocal(settings);
-      setApiKey(localStorage.getItem('novel-weaver-gemini-key') || '');
     }
   }, [isOpen, settings]);
 
   const handleSave = () => {
-    // Save API key to localStorage
-    if (apiKey.trim()) {
-      localStorage.setItem('novel-weaver-gemini-key', apiKey.trim());
-    } else {
-      localStorage.removeItem('novel-weaver-gemini-key');
-    }
     onSave(local);
   };
 
@@ -58,39 +49,20 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
       }
     >
       <div className="space-y-8">
-        {/* API Key — most important, shown first */}
-        <Section title="API Key">
-          <div>
-            <Label
-              text="API Key"
-              hint="Works with Agent Router or Google AI Studio keys."
-            />
-            <div className="flex gap-2 mt-1.5">
-              <div className="relative flex-1">
-                <input
-                  type={showKey ? 'text' : 'password'}
-                  value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
-                  placeholder="Paste your API key here..."
-                  className="w-full bg-ink-200 border border-ink-400/30 rounded-lg px-3 py-2 text-sm text-parchment focus:outline-none focus:border-gold/30 transition-colors pr-16"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowKey(s => !s)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-parchment-faint hover:text-parchment-dim transition-colors px-1.5 py-0.5 rounded"
-                >
-                  {showKey ? 'Hide' : 'Show'}
-                </button>
+        {/* AI Engine Info */}
+        <Section title="AI Engine">
+          <div className="space-y-3">
+            <div className="p-3 rounded-lg bg-ink-200/50 border border-gold/10">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-lg">🚀</span>
+                <span className="text-sm font-medium text-parchment">NVIDIA Nemotron 120B</span>
               </div>
+              <p className="text-xs text-parchment-faint leading-relaxed">
+                Powered by <strong className="text-parchment-dim">NVIDIA Nemotron 3 Super 120B</strong> via OpenRouter — a powerful cloud AI model.
+                No downloads, no setup, no limits. Just start writing.
+              </p>
             </div>
-            <a
-              href="https://aistudio.google.com/apikey"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block mt-2 text-xs text-gold hover:text-gold-light transition-colors underline underline-offset-2"
-            >
-              Get your free API key from Google AI Studio or Agent Router →
-            </a>
+            <p className="text-xs text-parchment-faint">✅ Cloud AI is ready to use</p>
           </div>
         </Section>
 
@@ -130,52 +102,30 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
           </div>
         </Section>
 
-        {/* AI Model */}
-        <Section title="AI Model">
-          <div>
-            <Label text="Writing Partner" hint="All models are free. Flash is recommended for writing." />
-            <select
-              value={local.ai.model}
-              onChange={e => setLocal(s => ({ ...s, ai: { ...s.ai, model: e.target.value } }))}
-              className="mt-1.5 w-full bg-ink-200 border border-ink-400/30 rounded-lg px-3 py-2 text-sm text-parchment focus:outline-none focus:border-gold/30 transition-colors appearance-none"
-            >
-              <option value="claude-opus-4-6">🧠 Claude Opus 4.6 — Advanced Model</option>
-              <option value="gemini-2.0-flash">⚡ Gemini 2.0 Flash — Fast & capable (recommended)</option>
-              <option value="gemini-2.0-flash-lite">🪶 Gemini 2.0 Flash Lite — Lightweight & quick</option>
-              <option value="gemini-1.5-flash">⚡ Gemini 1.5 Flash — Reliable workhorse</option>
-              <option value="gemini-1.5-pro">🧠 Gemini 1.5 Pro — Most capable (lower limits)</option>
-            </select>
-          </div>
-
-          {/* Advanced sliders */}
-          <details className="group">
-            <summary className="cursor-pointer text-xs text-parchment-faint hover:text-parchment-dim transition-colors select-none">
-              Advanced AI Tuning ▸
-            </summary>
-            <div className="mt-3 space-y-4 pl-2 border-l border-ink-400/20">
-              {[
-                { label: 'Temperature (Creativity)', value: local.ai.temperature, min: 0, max: 1, step: 0.05, key: 'temperature' as const },
-                { label: 'Top-K (Response Diversity)', value: local.ai.topK, min: 1, max: 100, step: 1, key: 'topK' as const },
-                { label: 'Top-P (Text Creativity)', value: local.ai.topP, min: 0, max: 1, step: 0.01, key: 'topP' as const },
-              ].map(slider => (
-                <div key={slider.key}>
-                  <div className="flex justify-between text-xs mb-1">
-                    <span className="text-parchment-dim">{slider.label}</span>
-                    <span className="text-parchment-faint">{slider.value}</span>
-                  </div>
-                  <input
-                    type="range"
-                    min={slider.min}
-                    max={slider.max}
-                    step={slider.step}
-                    value={slider.value}
-                    onChange={e => setLocal(s => ({ ...s, ai: { ...s.ai, [slider.key]: parseFloat(e.target.value) } }))}
-                    className="w-full h-1.5 bg-ink-400 rounded-full appearance-none cursor-pointer accent-gold"
-                  />
+        {/* Advanced sliders */}
+        <Section title="Advanced AI Tuning">
+          <div className="space-y-4">
+            {[
+              { label: 'Temperature (Creativity)', value: local.ai.temperature, min: 0, max: 1, step: 0.05, key: 'temperature' as const },
+              { label: 'Top-P (Text Diversity)', value: local.ai.topP, min: 0, max: 1, step: 0.01, key: 'topP' as const },
+            ].map(slider => (
+              <div key={slider.key}>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-parchment-dim">{slider.label}</span>
+                  <span className="text-parchment-faint">{slider.value}</span>
                 </div>
-              ))}
-            </div>
-          </details>
+                <input
+                  type="range"
+                  min={slider.min}
+                  max={slider.max}
+                  step={slider.step}
+                  value={slider.value}
+                  onChange={e => setLocal(s => ({ ...s, ai: { ...s.ai, [slider.key]: parseFloat(e.target.value) } }))}
+                  className="w-full h-1.5 bg-ink-400 rounded-full appearance-none cursor-pointer accent-gold"
+                />
+              </div>
+            ))}
+          </div>
         </Section>
 
         {/* Export */}

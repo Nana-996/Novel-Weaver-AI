@@ -9,6 +9,7 @@ interface StoryPanelProps {
     onToggle: () => void;
     wordCount: number;
     hasMessages: boolean;
+    isExtracting?: boolean;
 }
 
 type Section = 'idea' | 'characters' | 'plot' | 'outline';
@@ -44,7 +45,7 @@ const sectionConfig: { key: Section; label: string; icon: React.ReactNode; place
     },
 ];
 
-const StoryPanel: React.FC<StoryPanelProps> = ({ notes, onNotesChange, isOpen, onToggle, wordCount, hasMessages }) => {
+const StoryPanel: React.FC<StoryPanelProps> = ({ notes, onNotesChange, isOpen, onToggle, wordCount, hasMessages, isExtracting }) => {
     const [activeSection, setActiveSection] = useState<Section>('idea');
     const activeConfig = sectionConfig.find(s => s.key === activeSection)!;
     const filledSections = sectionConfig.filter(s => notes[s.key]?.trim()).length;
@@ -69,6 +70,11 @@ const StoryPanel: React.FC<StoryPanelProps> = ({ notes, onNotesChange, isOpen, o
                         {filledSections}
                     </span>
                 )}
+                {isExtracting && (
+                    <span className="mt-2 w-4 h-4 rounded-full bg-sage/20 flex items-center justify-center animate-pulse">
+                        <span className="w-2 h-2 rounded-full bg-sage/60" />
+                    </span>
+                )}
             </button>
         );
     }
@@ -82,6 +88,12 @@ const StoryPanel: React.FC<StoryPanelProps> = ({ notes, onNotesChange, isOpen, o
                         <SparklesIcon className="w-3 h-3 text-warm/70" />
                     </div>
                     <span className="text-xs font-medium text-parchment-dim tracking-tight">Story Memory</span>
+                    {isExtracting && (
+                        <span className="flex items-center gap-1 text-[10px] text-sage/70 animate-pulse">
+                            <span className="w-1.5 h-1.5 rounded-full bg-sage/60 animate-pulse" />
+                            Syncing…
+                        </span>
+                    )}
                 </div>
                 <div className="flex items-center gap-1.5">
                     <div className="flex items-center gap-0.5">
@@ -160,7 +172,10 @@ const StoryPanel: React.FC<StoryPanelProps> = ({ notes, onNotesChange, isOpen, o
             {/* Footer hint */}
             <div className="px-3 py-2 border-t border-ink-400/8">
                 <p className="text-[10px] text-parchment-faint/30 leading-relaxed">
-                    The AI uses these notes to write chapters that stay true to your story.
+                    {isExtracting
+                        ? '✨ Extracting story details from your conversation…'
+                        : 'The AI reads these notes before every response to stay consistent with your story.'
+                    }
                 </p>
             </div>
         </div>

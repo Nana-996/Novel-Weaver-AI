@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mlc-ai/web-llm": "^0.2.83",
     "docx": "^9.5.1",
     "dotenv": "^17.2.3",
     "react": "^19.2.0",

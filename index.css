@@ -67,45 +67,34 @@ input:focus {
   outline: none;
 }
 
-/* Background noise texture — very subtle */
+/* Background noise texture — removed for cleaner look */
 .bg-noise {
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.015'/%3E%3C/svg%3E");
+  background-image: none;
 }
 
-/* Warm ambient background */
+/* Warm ambient background — flat */
 .bg-ambient {
-  background: 
-    radial-gradient(ellipse 80% 60% at 50% 0%, rgba(232, 160, 98, 0.04) 0%, transparent 60%),
-    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(126, 184, 154, 0.03) 0%, transparent 50%);
+  background: transparent;
 }
 
-/* Glass effect — warmer */
+/* Glass effect — solid color instead of blur */
 .glass {
-  background: rgba(15, 14, 23, 0.75);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: rgba(242, 238, 228, 0.95);
 }
 
-/* Warm gradient text */
+/* Warm gradient text — solid color */
 .text-warm-gradient {
-  background: linear-gradient(135deg, #e8a062 0%, #f0be8a 50%, #e8a062 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #c2410c;
 }
 
 /* Keep old class name for backward compatibility */
 .text-gold-gradient {
-  background: linear-gradient(135deg, #e8a062 0%, #f0be8a 50%, #e8a062 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #c2410c;
 }
 
-/* Warm border glow */
+/* Warm border glow — simple border without shadow */
 .border-warm-glow {
-  border: 1px solid rgba(232, 160, 98, 0.15);
-  box-shadow: 0 0 30px rgba(232, 160, 98, 0.04);
+  border: 1px solid rgba(194, 65, 12, 0.15);
 }
 
 /* Smooth resize for textareas */
@@ -206,28 +195,12 @@ textarea {
   }
 }
 
-/* Companion avatar glow */
+/* Companion avatar glow — removed */
 .companion-glow {
   position: relative;
 }
 
-.companion-glow::before {
-  content: '';
-  position: absolute;
-  inset: -3px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, rgba(232, 160, 98, 0.2), rgba(126, 184, 154, 0.15));
-  opacity: 0;
-  transition: opacity 0.5s ease;
-  z-index: -1;
-  filter: blur(8px);
-}
-
-.companion-glow:hover::before {
-  opacity: 1;
-}
-
-/* Gentle button hover */
+/* Gentle button hover — simplified */
 .btn-warm {
   position: relative;
   overflow: hidden;
@@ -236,39 +209,12 @@ textarea {
 
 .btn-warm:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 20px rgba(232, 160, 98, 0.2);
-}
-
-.btn-warm::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(232, 160, 98, 0) 0%, rgba(232, 160, 98, 0.08) 50%, rgba(232, 160, 98, 0) 100%);
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.btn-warm:hover::after {
-  opacity: 1;
 }
 
 /* Keep backward compat */
 .btn-gold {
   position: relative;
   overflow: hidden;
-}
-
-.btn-gold::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(232, 160, 98, 0) 0%, rgba(232, 160, 98, 0.1) 50%, rgba(232, 160, 98, 0) 100%);
-  opacity: 0;
-  transition: opacity 0.3s;
-}
-
-.btn-gold:hover::after {
-  opacity: 1;
 }
 
 /* Progress step styling */
@@ -295,7 +241,6 @@ textarea {
 /* Warm input glow on focus */
 .input-warm:focus-within {
   border-color: rgba(232, 160, 98, 0.35);
-  box-shadow: 0 0 0 3px rgba(232, 160, 98, 0.08), 0 4px 24px rgba(0, 0, 0, 0.3);
 }
 
 /* Welcome card hover */
@@ -304,8 +249,7 @@ textarea {
 }
 
 .welcome-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+  transform: translateY(-1px);
 }
 
 /* Panel slide from right */
@@ -378,7 +322,7 @@ textarea {
 
 /* Prose response — AI output styling */
 .prose-response {
-  color: rgba(235, 229, 223, 0.85);
+  color: rgba(0, 0, 0, 0.85);
   font-size: 0.875rem;
   line-height: 1.75;
 }
@@ -392,7 +336,7 @@ textarea {
 }
 
 .prose-response h1, .prose-response h2, .prose-response h3 {
-  color: rgba(235, 229, 223, 0.95);
+  color: rgba(0, 0, 0, 0.95);
   font-weight: 600;
   margin-top: 1.25em;
   margin-bottom: 0.5em;
@@ -408,33 +352,33 @@ textarea {
 }
 
 .prose-response strong {
-  color: rgba(232, 160, 98, 0.9);
+  color: rgba(194, 65, 12, 0.9);
   font-weight: 600;
 }
 
 .prose-response em {
   font-style: italic;
-  color: rgba(235, 229, 223, 0.7);
+  color: rgba(0, 0, 0, 0.7);
 }
 
 .prose-response blockquote {
-  border-left: 2px solid rgba(232, 160, 98, 0.2);
+  border-left: 2px solid rgba(194, 65, 12, 0.2);
   padding-left: 1em;
-  color: rgba(235, 229, 223, 0.6);
+  color: rgba(0, 0, 0, 0.6);
   font-style: italic;
   margin: 0.75em 0;
 }
 
 .prose-response code {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.05);
   padding: 0.15em 0.4em;
   border-radius: 4px;
   font-size: 0.85em;
 }
 
 .prose-response pre {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.05);
   border-radius: 8px;
   padding: 1em;
   overflow-x: auto;
@@ -443,6 +387,6 @@ textarea {
 
 .prose-response hr {
   border: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
   margin: 1.5em 0;
 }

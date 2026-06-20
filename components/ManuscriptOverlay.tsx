@@ -27,7 +27,7 @@ const ManuscriptOverlay: React.FC<ManuscriptOverlayProps> = ({ project, isOpen, 
     return (
         <div className="fixed inset-0 z-50 overlay-enter" onClick={onClose}>
             {/* Backdrop */}
-            <div className="absolute inset-0 bg-ink/90 backdrop-blur-sm" />
+            <div className="absolute inset-0 bg-ink/90" />
 
             {/* Content */}
             <div

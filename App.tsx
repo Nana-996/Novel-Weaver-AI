@@ -6,16 +6,26 @@ import ProjectsModal from './components/ProjectsModal';
 import SettingsModal from './components/SettingsModal';
 import { SparklesIcon, BookOpenIcon, FolderIcon, SettingsIcon, PlusIcon, DownloadIcon } from './components/Icons';
 import type { Project, Message, Chapter, Settings, ExportFormat, StoryNotes } from './types';
-import { createChat } from './services/geminiService';
+import { createChat, extractStoryNotes } from './services/geminiService';
 import { useHistoryState } from './hooks/useHistoryState';
 import type { OpenRouterChat } from './services/geminiService';
+
+export type ThinkingPhase = 'preparing' | 'connecting' | 'waiting' | 'streaming' | 'retrying' | 'stalled' | null;
+export interface ThinkingStatus {
+  phase: ThinkingPhase;
+  model: string;
+  startedAt: number;
+  lastTokenAt: number | null;
+  wordCount: number;
+  retryCount: number;
+}
 
 declare const docx: any;
 declare const jspdf: any;
 
 const DEFAULT_SETTINGS: Settings = {
   ai: {
-    model: 'claude-opus-4-6',
+    model: 'nvidia/nemotron-3-super-120b-a12b:free',
     temperature: 0.7,
     topK: 40,
     topP: 0.95,
@@ -53,8 +63,13 @@ const App: React.FC = () => {
   const [isStoryPanelOpen, setStoryPanelOpen] = useState(false);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [streamingText, setStreamingText] = useState<string | null>(null);
+  const [thinkingStatus, setThinkingStatus] = useState<ThinkingStatus | null>(null);
+  const [isExtractingNotes, setIsExtractingNotes] = useState(false);
+  const thinkingRef = useRef<ThinkingStatus | null>(null);
+  const stallTimerRef = useRef<number | null>(null);
 
   const chatRef = useRef<OpenRouterChat | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const activeProject = projects.find(p => p.id === activeProjectId) ?? null;
   const notesSaveTimeoutRef = useRef<number | null>(null);
 
@@ -69,6 +84,11 @@ const App: React.FC = () => {
       const savedSettings = localStorage.getItem('novel-weaver-settings');
       if (savedSettings) {
         const parsed = JSON.parse(savedSettings);
+        if (parsed.ai) {
+          // Always use the OpenRouter model
+          parsed.ai.model = 'nvidia/nemotron-3-super-120b-a12b:free';
+          delete parsed.ai.provider;
+        }
         setSettings(curr => ({
           ...curr,
           ...parsed,
@@ -333,6 +353,10 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     setStreamingText('');
+    abortRef.current = new AbortController();
+    const status: ThinkingStatus = { phase: 'preparing', model, startedAt: Date.now(), lastTokenAt: null, wordCount: 0, retryCount: 0 };
+    thinkingRef.current = status;
+    setThinkingStatus({ ...status });
 
     let newChat;
     try {
@@ -354,11 +378,21 @@ const App: React.FC = () => {
     let storyContext = buildStoryContext(activeProject);
 
     try {
-      const stream = await newChat.sendMessageStream({ message: storyContext + userMessage.text });
+      if (thinkingRef.current) { thinkingRef.current.phase = 'connecting'; setThinkingStatus({ ...thinkingRef.current }); }
+      const stream = await newChat.sendMessageStream({ message: storyContext + userMessage.text, abortSignal: abortRef.current?.signal });
+      if (thinkingRef.current) { thinkingRef.current.phase = 'waiting'; setThinkingStatus({ ...thinkingRef.current }); }
+      startStallDetection();
       let fullResponse = '';
       for await (const chunk of stream) {
+        if (abortRef.current?.signal.aborted) break;
         fullResponse += chunk.text;
         setStreamingText(fullResponse);
+        if (thinkingRef.current) {
+          thinkingRef.current.phase = 'streaming';
+          thinkingRef.current.lastTokenAt = Date.now();
+          thinkingRef.current.wordCount = (fullResponse.match(/\S+/g) || []).length;
+          setThinkingStatus({ ...thinkingRef.current });
+        }
       }
 
       const updatedMessages = [...activeProject.messages];
@@ -367,12 +401,23 @@ const App: React.FC = () => {
       const updatedProjects = projects.map(p =>
         p.id === activeProjectId ? { ...p, messages: updatedMessages } : p
       );
-      setProjects(rebuildManuscript(updatedProjects, activeProjectId));
+      const finalProjects = rebuildManuscript(updatedProjects, activeProjectId);
+      setProjects(finalProjects);
+
+      // Auto-extract story notes in the background
+      const updatedProject = finalProjects.find(p => p.id === activeProjectId);
+      if (updatedProject && activeProjectId) {
+        triggerStoryExtraction(updatedProject.messages, activeProjectId, updatedProject.notes);
+      }
     } catch (error: any) {
       const updatedMessages = [...activeProject.messages];
       updatedMessages[msgIndex] = { id: messageId, role: 'model', text: `Error: ${error.message}` };
       setProjects(projects.map(p => p.id === activeProjectId ? { ...p, messages: updatedMessages } : p));
     } finally {
+      abortRef.current = null;
+      thinkingRef.current = null;
+      clearStallDetection();
+      setThinkingStatus(null);
       setIsLoading(false);
       setStreamingText(null);
     }
@@ -442,6 +487,26 @@ const App: React.FC = () => {
     return parts.join('\n');
   };
 
+  // Trigger Story Memory auto-extraction after AI responses
+  const triggerStoryExtraction = useCallback(async (projectMessages: Array<{ role: 'user' | 'model'; text: string }>, projectId: string, currentNotes: StoryNotes) => {
+    setIsExtractingNotes(true);
+    try {
+      const updates = await extractStoryNotes(projectMessages, currentNotes);
+      if (updates) {
+        console.log('[StoryExtraction] Updating Story Memory with new info');
+        setProjects(prev => prev.map(p =>
+          p.id === projectId
+            ? { ...p, notes: { idea: updates.idea, characters: updates.characters, plot: updates.plot, outline: updates.outline } }
+            : p
+        ));
+      }
+    } catch (error) {
+      console.warn('[StoryExtraction] Extraction failed:', error);
+    } finally {
+      setIsExtractingNotes(false);
+    }
+  }, [setProjects]);
+
   const handleSendMessage = async (text: string) => {
     if (!activeProject || !chatRef.current) return;
     const userMessage: Message = { id: `msg-${Date.now()}`, role: 'user', text };
@@ -453,21 +518,44 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     setStreamingText('');
+    abortRef.current = new AbortController();
+    const status: ThinkingStatus = { phase: 'preparing', model: settings.ai.model, startedAt: Date.now(), lastTokenAt: null, wordCount: 0, retryCount: 0 };
+    thinkingRef.current = status;
+    setThinkingStatus({ ...status });
 
     const storyContext = buildStoryContext(activeProject);
 
     try {
-      const stream = await chatRef.current.sendMessageStream({ message: storyContext + text });
+      if (thinkingRef.current) { thinkingRef.current.phase = 'connecting'; setThinkingStatus({ ...thinkingRef.current }); }
+      const stream = await chatRef.current.sendMessageStream({ message: storyContext + text, abortSignal: abortRef.current?.signal });
+      if (thinkingRef.current) { thinkingRef.current.phase = 'waiting'; setThinkingStatus({ ...thinkingRef.current }); }
+      startStallDetection();
       let fullResponse = '';
       for await (const chunk of stream) {
+        if (abortRef.current?.signal.aborted) break;
         fullResponse += chunk.text;
         setStreamingText(fullResponse);
+        if (thinkingRef.current) {
+          thinkingRef.current.phase = 'streaming';
+          thinkingRef.current.lastTokenAt = Date.now();
+          thinkingRef.current.wordCount = (fullResponse.match(/\S+/g) || []).length;
+          setThinkingStatus({ ...thinkingRef.current });
+        }
       }
-      const modelMessage: Message = { id: `msg-${Date.now() + 1}`, role: 'model', text: fullResponse };
-      currentProjects = currentProjects.map(p =>
-        p.id === activeProjectId ? { ...p, messages: [...p.messages, modelMessage] } : p
-      );
-      setProjects(rebuildManuscript(currentProjects, activeProjectId));
+      if (fullResponse.trim()) {
+        const modelMessage: Message = { id: `msg-${Date.now() + 1}`, role: 'model', text: fullResponse };
+        currentProjects = currentProjects.map(p =>
+          p.id === activeProjectId ? { ...p, messages: [...p.messages, modelMessage] } : p
+        );
+        const finalProjects = rebuildManuscript(currentProjects, activeProjectId);
+        setProjects(finalProjects);
+
+        // Auto-extract story notes in the background
+        const updatedProject = finalProjects.find(p => p.id === activeProjectId);
+        if (updatedProject && activeProjectId) {
+          triggerStoryExtraction(updatedProject.messages, activeProjectId, updatedProject.notes);
+        }
+      }
     } catch (error: any) {
       const errorMessage: Message = { id: `msg-${Date.now() + 1}`, role: 'model', text: `Error: ${error.message}` };
       currentProjects = currentProjects.map(p =>
@@ -475,8 +563,33 @@ const App: React.FC = () => {
       );
       setProjects(currentProjects);
     } finally {
+      abortRef.current = null;
+      thinkingRef.current = null;
+      clearStallDetection();
+      setThinkingStatus(null);
       setIsLoading(false);
       setStreamingText(null);
+    }
+  };
+
+  // Stall detection — marks status as 'stalled' if no tokens for 20s
+  const startStallDetection = () => {
+    clearStallDetection();
+    stallTimerRef.current = window.setInterval(() => {
+      if (thinkingRef.current && thinkingRef.current.phase !== 'stalled') {
+        const lastActivity = thinkingRef.current.lastTokenAt || thinkingRef.current.startedAt;
+        if (Date.now() - lastActivity > 20000) {
+          thinkingRef.current.phase = 'stalled';
+          setThinkingStatus({ ...thinkingRef.current });
+        }
+      }
+    }, 2000);
+  };
+
+  const clearStallDetection = () => {
+    if (stallTimerRef.current) {
+      clearInterval(stallTimerRef.current);
+      stallTimerRef.current = null;
     }
   };
 
@@ -518,11 +631,11 @@ const App: React.FC = () => {
   return (
     <div className="h-screen w-screen flex flex-col bg-ink bg-noise bg-ambient overflow-hidden overflow-x-hidden">
       {/* ===== TOP BAR — Simplified, warm ===== */}
-      <header className="flex items-center justify-between px-4 md:px-6 py-2.5 border-b border-ink-400/8 bg-ink-50/20 backdrop-blur-sm z-20 flex-shrink-0">
+      <header className="flex items-center justify-between px-4 md:px-6 py-2.5 border-b border-ink-400/8 bg-ink flex-shrink-0 z-20">
         {/* Left: Brand + Title */}
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-warm/15 to-sage/10 border border-warm/15 flex items-center justify-center">
+            <div className="w-7 h-7 rounded-lg bg-ink-200 border border-ink-400 flex items-center justify-center">
               <SparklesIcon className="w-4 h-4 text-warm" />
             </div>
             <span className="font-display text-sm font-semibold text-parchment tracking-tight hidden sm:block">Novel Weaver</span>
@@ -589,7 +702,17 @@ const App: React.FC = () => {
               isLoading={isLoading}
               onEditMessage={handleEditMessage}
               onRegenerateMessage={handleRegenerateMessage}
+              onStopGenerating={() => {
+                abortRef.current?.abort();
+                abortRef.current = null;
+                thinkingRef.current = null;
+                clearStallDetection();
+                setThinkingStatus(null);
+                setIsLoading(false);
+                setStreamingText(null);
+              }}
               streamingText={streamingText}
+              thinkingStatus={thinkingStatus}
               currentModel={settings.ai.model}
               project={activeProject}
             />
@@ -609,6 +732,7 @@ const App: React.FC = () => {
             onToggle={() => setStoryPanelOpen(o => !o)}
             wordCount={activeProject.wordCount}
             hasMessages={activeProject.messages.length > 0}
+            isExtracting={isExtractingNotes}
           />
         )}
       </div>

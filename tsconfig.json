@@ -12,7 +12,8 @@
     ],
     "skipLibCheck": true,
     "types": [
-      "node"
+      "node",
+      "vite/client"
     ],
     "moduleResolution": "bundler",
     "isolatedModules": true,
@@ -27,6 +28,18 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.bak*",
+    "App_*.tsx",
+    "App.tsx.*",
+    "App.tsx.clean",
+    "App.mobile.tsx",
+    "ChatView.mobile.tsx",
+    "novel-weaver-mobile",
+    "novel-weaver-app"
+  ],
   "references": [
     { "path": "./tsconfig.mobile.json" }
   ]
