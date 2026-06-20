@@ -45,7 +45,74 @@ const createEmptyNotes = (): StoryNotes => ({
   outline: '',
 });
 
+const getInitialSettings = (): Settings => {
+  try {
+    const savedSettings = localStorage.getItem('novel-weaver-settings');
+    if (savedSettings) {
+      const parsed = JSON.parse(savedSettings);
+      if (parsed.ai) {
+        parsed.ai.model = 'nvidia/nemotron-3-super-120b-a12b:free';
+        delete parsed.ai.provider;
+      }
+      return {
+        ...DEFAULT_SETTINGS,
+        ...parsed,
+        ai: { ...DEFAULT_SETTINGS.ai, ...parsed.ai },
+        export: { ...DEFAULT_SETTINGS.export, ...parsed.export },
+      };
+    }
+  } catch (error) {
+    console.error("Failed to load settings", error);
+  }
+  return DEFAULT_SETTINGS;
+};
+
+const getInitialProjects = (): Project[] => {
+  try {
+    const savedProjects = localStorage.getItem('novel-weaver-projects');
+    if (savedProjects) {
+      let initialProjects: Project[] = JSON.parse(savedProjects);
+      initialProjects = initialProjects.map(p => {
+        if (!p.notes) {
+          return {
+            ...p,
+            notes: {
+              idea: '',
+              plot: (p as any).plotNotes || '',
+              characters: (p as any).characterNotes || '',
+              outline: '',
+            }
+          };
+        }
+        return p;
+      });
+      if (initialProjects.length > 0) {
+        return initialProjects;
+      }
+    }
+  } catch (error) {
+    console.error("Failed to load projects", error);
+  }
+  return [
+    {
+      id: `proj-${Date.now()}`,
+      title: 'My New Story',
+      createdAt: Date.now(),
+      messages: [],
+      manuscript: [],
+      wordCount: 0,
+      notes: {
+        idea: '',
+        plot: '',
+        characters: '',
+        outline: '',
+      },
+    }
+  ];
+};
+
 const App: React.FC = () => {
+  const initialProjectsList = getInitialProjects();
   const {
     state: projects,
     set: setProjects,
@@ -53,15 +120,26 @@ const App: React.FC = () => {
     redo,
     canUndo,
     canRedo,
-  } = useHistoryState<Project[]>([]);
+  } = useHistoryState<Project[]>(initialProjectsList);
 
-  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(() => {
+    try {
+      const lastProjectId = localStorage.getItem('novel-weaver-last-project');
+      if (lastProjectId && initialProjectsList.some(p => p.id === lastProjectId)) {
+        return lastProjectId;
+      }
+    } catch (e) {
+      console.error(e);
+    }
+    return initialProjectsList[0]?.id || null;
+  });
+
   const [isLoading, setIsLoading] = useState(false);
   const [isProjectsModalOpen, setProjectsModalOpen] = useState(false);
   const [isSettingsModalOpen, setSettingsModalOpen] = useState(false);
   const [isManuscriptOpen, setManuscriptOpen] = useState(false);
   const [isStoryPanelOpen, setStoryPanelOpen] = useState(false);
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [settings, setSettings] = useState<Settings>(getInitialSettings);
   const [streamingText, setStreamingText] = useState<string | null>(null);
   const [thinkingStatus, setThinkingStatus] = useState<ThinkingStatus | null>(null);
   const [isExtractingNotes, setIsExtractingNotes] = useState(false);
@@ -78,63 +156,6 @@ const App: React.FC = () => {
     setEditingTitle(activeProject?.title || '');
   }, [activeProject?.title]);
 
-  // Load initial data
-  useEffect(() => {
-    try {
-      const savedSettings = localStorage.getItem('novel-weaver-settings');
-      if (savedSettings) {
-        const parsed = JSON.parse(savedSettings);
-        if (parsed.ai) {
-          // Always use the OpenRouter model
-          parsed.ai.model = 'nvidia/nemotron-3-super-120b-a12b:free';
-          delete parsed.ai.provider;
-        }
-        setSettings(curr => ({
-          ...curr,
-          ...parsed,
-          ai: { ...curr.ai, ...parsed.ai },
-          export: { ...curr.export, ...parsed.export },
-        }));
-      }
-
-      const savedProjects = localStorage.getItem('novel-weaver-projects');
-      let initialProjects: Project[] = savedProjects ? JSON.parse(savedProjects) : [];
-
-      // Migrate old project format to new format
-      initialProjects = initialProjects.map(p => {
-        if (!p.notes) {
-          return {
-            ...p,
-            notes: {
-              idea: '',
-              plot: (p as any).plotNotes || '',
-              characters: (p as any).characterNotes || '',
-              outline: '',
-            }
-          };
-        }
-        return p;
-      });
-
-      if (initialProjects.length > 0) {
-        setProjects(initialProjects, true);
-        const lastProjectId = localStorage.getItem('novel-weaver-last-project');
-        setActiveProjectId(lastProjectId || initialProjects[0].id);
-      } else {
-        createNewProject((newProject) => {
-          setProjects([newProject], true);
-          setActiveProjectId(newProject.id);
-        });
-      }
-    } catch (error) {
-      console.error("Failed to load data", error);
-      localStorage.clear();
-      createNewProject((newProject) => {
-        setProjects([newProject], true);
-        setActiveProjectId(newProject.id);
-      });
-    }
-  }, []);
 
   // Auto-save
   useEffect(() => {
@@ -310,20 +331,64 @@ const App: React.FC = () => {
     return projectsToUpdate.map(p => {
       if (p.id !== currentProjectId) return p;
       const newManuscriptMap = new Map<string, Chapter>();
-      const chapterRegex = /^(Chapter\s+\d+[\s\S]*?)(?=\n\nChapter\s+\d+|$)/i;
 
       p.messages.forEach(message => {
         if (message.role === 'model') {
+          // Clean the text from notes
           const cleanText = message.text
             .replace(/\[Author's Notes.*?\[User Prompt\]:\n?/gs, '')
             .replace(/\[AI Character Notes\][\s\S]*?(?=\[AI Plot Notes\]|$)/gi, '')
             .replace(/\[AI Plot Notes\][\s\S]*?(?=\[Author's Notes\]|$)/gi, '');
-          const match = cleanText.match(chapterRegex);
-          if (match) {
-            const lines = match[1].split('\n');
-            const title = lines[0].trim();
-            const content = lines.slice(1).join('\n').trim();
-            if (title && content) newManuscriptMap.set(title, { title, content });
+          
+          const lines = cleanText.split('\n');
+          let currentChapterTitle = '';
+          let currentChapterContent: string[] = [];
+
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const cleanLine = line.trim();
+
+            // Check if line matches a chapter header (e.g. "Chapter 1", "## Chapter 1", "### Chapter 1: Title")
+            const chapterMatch = cleanLine.match(/^(?:#+\s*)?(Chapter\s+\d+)(.*)$/i);
+
+            if (chapterMatch) {
+              // Save the previous chapter before starting a new one
+              if (currentChapterTitle && currentChapterContent.length > 0) {
+                newManuscriptMap.set(currentChapterTitle.toLowerCase(), {
+                  title: currentChapterTitle,
+                  content: currentChapterContent.join('\n').trim()
+                });
+              }
+
+              // Start a new chapter
+              const numPart = chapterMatch[1].trim(); // e.g. "Chapter 1"
+              const titlePart = chapterMatch[2].replace(/^[:\-\s]+/, '').trim(); // e.g. "The Beginning"
+              currentChapterTitle = titlePart ? `${numPart}: ${titlePart}` : numPart;
+              currentChapterContent = [];
+            } else if (currentChapterTitle) {
+              // Stop collecting if we hit a metadata block
+              if (cleanLine.startsWith('[AI Character Notes]') ||
+                  cleanLine.startsWith('[AI Plot Notes]') ||
+                  cleanLine.startsWith("[Author's Notes]") ||
+                  cleanLine.startsWith('[User Prompt]')) {
+                newManuscriptMap.set(currentChapterTitle.toLowerCase(), {
+                  title: currentChapterTitle,
+                  content: currentChapterContent.join('\n').trim()
+                });
+                currentChapterTitle = '';
+                currentChapterContent = [];
+              } else {
+                currentChapterContent.push(line);
+              }
+            }
+          }
+
+          // Save the last chapter from the message
+          if (currentChapterTitle && currentChapterContent.length > 0) {
+            newManuscriptMap.set(currentChapterTitle.toLowerCase(), {
+              title: currentChapterTitle,
+              content: currentChapterContent.join('\n').trim()
+            });
           }
         }
       });

@@ -169,7 +169,7 @@ const ChatView: React.FC<ChatViewProps> = ({
                         <MarkdownRenderer text={msg.text} />
                       </div>
                       {/* Subtle actions */}
-                      <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                      <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 w-full">
                         <button
                           onClick={() => handleStartEdit(msg)}
                           className="flex items-center gap-1 px-2 py-1 rounded-md text-parchment-faint/60 hover:text-warm hover:bg-warm/5 transition-colors text-[11px]"
@@ -184,6 +184,9 @@ const ChatView: React.FC<ChatViewProps> = ({
                           <RefreshIcon className="w-3 h-3" />
                           <span>Try again</span>
                         </button>
+                        <span className="text-[10px] text-parchment-faint/40 ml-auto font-mono">
+                          {(msg.text.match(/\S+/g) || []).length} words
+                        </span>
                       </div>
                     </div>
                   </div>
