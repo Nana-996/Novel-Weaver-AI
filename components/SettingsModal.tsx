@@ -9,6 +9,20 @@ interface SettingsModalProps {
   onSave: (settings: Settings) => void;
 }
 
+const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+  <div className="space-y-4">
+    <h3 className="text-sm font-semibold text-gold uppercase tracking-wider">{title}</h3>
+    {children}
+  </div>
+);
+
+const Label = ({ text, hint }: { text: string; hint?: string }) => (
+  <div>
+    <label className="block text-sm font-medium text-parchment">{text}</label>
+    {hint && <p className="text-xs text-parchment-faint mt-0.5">{hint}</p>}
+  </div>
+);
+
 const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings, onSave }) => {
   const [local, setLocal] = useState<Settings>(settings);
 
@@ -21,20 +35,6 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
   const handleSave = () => {
     onSave(local);
   };
-
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-gold uppercase tracking-wider">{title}</h3>
-      {children}
-    </div>
-  );
-
-  const Label = ({ text, hint }: { text: string; hint?: string }) => (
-    <div>
-      <label className="block text-sm font-medium text-parchment">{text}</label>
-      {hint && <p className="text-xs text-parchment-faint mt-0.5">{hint}</p>}
-    </div>
-  );
 
   return (
     <Modal
