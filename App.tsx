@@ -4,11 +4,20 @@ import StoryPanel from './components/StoryPanel';
 import ManuscriptOverlay from './components/ManuscriptOverlay';
 import ProjectsModal from './components/ProjectsModal';
 import SettingsModal from './components/SettingsModal';
-import { SparklesIcon, BookOpenIcon, FolderIcon, SettingsIcon, PlusIcon, DownloadIcon } from './components/Icons';
+import AuthModal from './components/AuthModal';
+import UserMenu from './components/UserMenu';
+import PricingModal from './components/PricingModal';
+import UsageBanner from './components/UsageBanner';
+import { SparklesIcon, BookOpenIcon, FolderIcon, SettingsIcon, PlusIcon, DownloadIcon, PenIcon } from './components/Icons';
 import type { Project, Message, Chapter, Settings, ExportFormat, StoryNotes } from './types';
 import { createChat, extractStoryNotes } from './services/geminiService';
 import { useHistoryState } from './hooks/useHistoryState';
 import type { OpenRouterChat } from './services/geminiService';
+import { isSupabaseConfigured, onAuthStateChange, getSession, getUserProfile, getAccessToken } from './services/authService';
+import type { UserProfile } from './services/authService';
+import { loadProjectsFromLocal, saveProjectsToLocal, syncProjects, debouncedCloudSave, deleteProjectFromCloud } from './services/projectService';
+import { getUsageToday } from './services/usageService';
+import type { UsageInfo } from './services/usageService';
 
 export type ThinkingPhase = 'preparing' | 'connecting' | 'waiting' | 'streaming' | 'retrying' | 'stalled' | null;
 export interface ThinkingStatus {
@@ -68,31 +77,8 @@ const getInitialSettings = (): Settings => {
 };
 
 const getInitialProjects = (): Project[] => {
-  try {
-    const savedProjects = localStorage.getItem('novel-weaver-projects');
-    if (savedProjects) {
-      let initialProjects: Project[] = JSON.parse(savedProjects);
-      initialProjects = initialProjects.map(p => {
-        if (!p.notes) {
-          return {
-            ...p,
-            notes: {
-              idea: '',
-              plot: (p as any).plotNotes || '',
-              characters: (p as any).characterNotes || '',
-              outline: '',
-            }
-          };
-        }
-        return p;
-      });
-      if (initialProjects.length > 0) {
-        return initialProjects;
-      }
-    }
-  } catch (error) {
-    console.error("Failed to load projects", error);
-  }
+  const projects = loadProjectsFromLocal();
+  if (projects.length > 0) return projects;
   return [
     {
       id: `proj-${Date.now()}`,
@@ -101,17 +87,21 @@ const getInitialProjects = (): Project[] => {
       messages: [],
       manuscript: [],
       wordCount: 0,
-      notes: {
-        idea: '',
-        plot: '',
-        characters: '',
-        outline: '',
-      },
+      notes: createEmptyNotes(),
     }
   ];
 };
 
 const App: React.FC = () => {
+  // --- Auth State ---
+  const [authReady, setAuthReady] = useState(!isSupabaseConfigured()); // If no Supabase, skip auth
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showPricingModal, setShowPricingModal] = useState(false);
+  const [usage, setUsage] = useState<UsageInfo | null>(null);
+  const [initialSyncDone, setInitialSyncDone] = useState(false);
+
+  // --- Project State ---
   const initialProjectsList = getInitialProjects();
   const {
     state: projects,
@@ -156,18 +146,126 @@ const App: React.FC = () => {
     setEditingTitle(activeProject?.title || '');
   }, [activeProject?.title]);
 
-
-  // Auto-save
+  // ============================================================
+  // Auth initialization
+  // ============================================================
   useEffect(() => {
-    localStorage.setItem('novel-weaver-projects', JSON.stringify(projects));
+    if (!isSupabaseConfigured()) {
+      setAuthReady(true);
+      return;
+    }
+
+    // Check existing session
+    getSession().then(async (session) => {
+      if (session?.user) {
+        const profile = await getUserProfile(session.user.id);
+        setUserProfile(profile);
+
+        // Sync projects from cloud
+        const synced = await syncProjects(session.user.id, loadProjectsFromLocal());
+        if (synced.length > 0) {
+          setProjects(synced);
+          if (!synced.find(p => p.id === activeProjectId)) {
+            setActiveProjectId(synced[0].id);
+          }
+        }
+        setInitialSyncDone(true);
+
+        // Load usage
+        const usageInfo = await getUsageToday(session.user.id, profile?.tier || 'free');
+        setUsage(usageInfo);
+      } else {
+        setShowAuthModal(true);
+      }
+      setAuthReady(true);
+    });
+
+    // Listen for auth changes
+    const unsubscribe = onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session?.user) {
+        const profile = await getUserProfile(session.user.id);
+        setUserProfile(profile);
+        setShowAuthModal(false);
+
+        // Sync on sign-in
+        const synced = await syncProjects(session.user.id, loadProjectsFromLocal());
+        if (synced.length > 0) {
+          setProjects(synced);
+        }
+        setInitialSyncDone(true);
+
+        const usageInfo = await getUsageToday(session.user.id, profile?.tier || 'free');
+        setUsage(usageInfo);
+      } else if (event === 'SIGNED_OUT') {
+        setUserProfile(null);
+        setUsage(null);
+        setInitialSyncDone(false);
+        setShowAuthModal(true);
+      }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
+
+  // Handle Paystack callback (check URL for payment reference)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const reference = urlParams.get('reference') || urlParams.get('trxref');
+
+    if (reference && userProfile) {
+      // Verify payment
+      getAccessToken().then(token => {
+        if (!token) return;
+
+        fetch('/api/verify-payment', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ reference }),
+        })
+          .then(res => res.json())
+          .then(data => {
+            if (data.success) {
+              // Update profile tier
+              setUserProfile(prev => prev ? { ...prev, tier: data.tier } : null);
+              // Clean URL
+              window.history.replaceState({}, '', window.location.pathname);
+              alert(`🎉 Welcome to the ${data.tier.charAt(0).toUpperCase() + data.tier.slice(1)} plan! Enjoy your upgraded features.`);
+            }
+          })
+          .catch(console.error);
+      });
+    }
+  }, [userProfile?.id]);
+
+  // Auto-save to localStorage + cloud sync
+  useEffect(() => {
+    saveProjectsToLocal(projects);
     if (activeProjectId) {
       localStorage.setItem('novel-weaver-last-project', activeProjectId);
+    }
+
+    // Debounced cloud sync for the active project
+    if (userProfile && activeProject) {
+      debouncedCloudSave(activeProject, userProfile.id);
     }
   }, [projects, activeProjectId]);
 
   useEffect(() => {
     localStorage.setItem('novel-weaver-settings', JSON.stringify(settings));
   }, [settings]);
+
+  // Refresh usage after sending a message
+  const refreshUsage = useCallback(async () => {
+    if (userProfile) {
+      const usageInfo = await getUsageToday(userProfile.id, userProfile.tier);
+      setUsage(usageInfo);
+    }
+  }, [userProfile]);
 
   // Init chat when project or settings change
   useEffect(() => {
@@ -285,13 +383,22 @@ const App: React.FC = () => {
       alert("Your manuscript is empty — start writing chapters first!");
       return;
     }
+
+    // Tier-based export restrictions
+    const tier = userProfile?.tier || 'free';
+    if (tier === 'free') {
+      // Free users can only export TXT
+      exportAsTxt(activeProject);
+      return;
+    }
+
     const format = prompt("Export as: TXT, PDF, or DOCX?", settings.export.defaultFormat.toUpperCase());
     switch (format?.toLowerCase()) {
       case 'txt': exportAsTxt(activeProject); break;
       case 'pdf': exportAsPdf(activeProject); break;
       case 'docx': exportAsDocx(activeProject); break;
     }
-  }, [activeProject, settings.export.defaultFormat]);
+  }, [activeProject, settings.export.defaultFormat, userProfile?.tier]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -324,6 +431,10 @@ const App: React.FC = () => {
       }
     }
     setProjects(remaining);
+    // Also delete from cloud
+    if (userProfile) {
+      deleteProjectFromCloud(projectId).catch(console.error);
+    }
   };
 
   // Rebuild manuscript from messages
@@ -334,7 +445,6 @@ const App: React.FC = () => {
 
       p.messages.forEach(message => {
         if (message.role === 'model') {
-          // Clean the text from notes
           const cleanText = message.text
             .replace(/\[Author's Notes.*?\[User Prompt\]:\n?/gs, '')
             .replace(/\[AI Character Notes\][\s\S]*?(?=\[AI Plot Notes\]|$)/gi, '')
@@ -347,26 +457,20 @@ const App: React.FC = () => {
           for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             const cleanLine = line.trim();
-
-            // Check if line matches a chapter header (e.g. "Chapter 1", "## Chapter 1", "### Chapter 1: Title")
             const chapterMatch = cleanLine.match(/^(?:#+\s*)?(Chapter\s+\d+)(.*)$/i);
 
             if (chapterMatch) {
-              // Save the previous chapter before starting a new one
               if (currentChapterTitle && currentChapterContent.length > 0) {
                 newManuscriptMap.set(currentChapterTitle.toLowerCase(), {
                   title: currentChapterTitle,
                   content: currentChapterContent.join('\n').trim()
                 });
               }
-
-              // Start a new chapter
-              const numPart = chapterMatch[1].trim(); // e.g. "Chapter 1"
-              const titlePart = chapterMatch[2].replace(/^[:\-\s]+/, '').trim(); // e.g. "The Beginning"
+              const numPart = chapterMatch[1].trim();
+              const titlePart = chapterMatch[2].replace(/^[:\-\s]+/, '').trim();
               currentChapterTitle = titlePart ? `${numPart}: ${titlePart}` : numPart;
               currentChapterContent = [];
             } else if (currentChapterTitle) {
-              // Stop collecting if we hit a metadata block
               if (cleanLine.startsWith('[AI Character Notes]') ||
                   cleanLine.startsWith('[AI Plot Notes]') ||
                   cleanLine.startsWith("[Author's Notes]") ||
@@ -383,7 +487,6 @@ const App: React.FC = () => {
             }
           }
 
-          // Save the last chapter from the message
           if (currentChapterTitle && currentChapterContent.length > 0) {
             newManuscriptMap.set(currentChapterTitle.toLowerCase(), {
               title: currentChapterTitle,
@@ -439,7 +542,6 @@ const App: React.FC = () => {
       return;
     }
 
-    // Build context from notes
     let storyContext = buildStoryContext(activeProject);
 
     try {
@@ -469,11 +571,13 @@ const App: React.FC = () => {
       const finalProjects = rebuildManuscript(updatedProjects, activeProjectId);
       setProjects(finalProjects);
 
-      // Auto-extract story notes in the background
       const updatedProject = finalProjects.find(p => p.id === activeProjectId);
       if (updatedProject && activeProjectId) {
         triggerStoryExtraction(updatedProject.messages, activeProjectId, updatedProject.notes);
       }
+
+      // Refresh usage
+      refreshUsage();
     } catch (error: any) {
       const updatedMessages = [...activeProject.messages];
       updatedMessages[msgIndex] = { id: messageId, role: 'model', text: `Error: ${error.message}` };
@@ -574,6 +678,13 @@ const App: React.FC = () => {
 
   const handleSendMessage = async (text: string) => {
     if (!activeProject || !chatRef.current) return;
+
+    // Check usage before sending
+    if (usage?.isAtLimit) {
+      setShowPricingModal(true);
+      return;
+    }
+
     const userMessage: Message = { id: `msg-${Date.now()}`, role: 'user', text };
 
     let currentProjects = projects.map(p =>
@@ -615,12 +726,14 @@ const App: React.FC = () => {
         const finalProjects = rebuildManuscript(currentProjects, activeProjectId);
         setProjects(finalProjects);
 
-        // Auto-extract story notes in the background
         const updatedProject = finalProjects.find(p => p.id === activeProjectId);
         if (updatedProject && activeProjectId) {
           triggerStoryExtraction(updatedProject.messages, activeProjectId, updatedProject.notes);
         }
       }
+
+      // Refresh usage after message
+      refreshUsage();
     } catch (error: any) {
       const errorMessage: Message = { id: `msg-${Date.now() + 1}`, role: 'model', text: `Error: ${error.message}` };
       currentProjects = currentProjects.map(p =>
@@ -693,9 +806,23 @@ const App: React.FC = () => {
     return 'In progress';
   };
 
+  // --- Loading state ---
+  if (!authReady) {
+    return (
+      <div className="h-screen w-screen flex items-center justify-center bg-ink">
+        <div className="text-center animate-fade-in">
+          <div className="w-12 h-12 rounded-2xl bg-ink-200 border border-ink-400 flex items-center justify-center mx-auto mb-4 animate-pulse-soft">
+            <SparklesIcon className="w-6 h-6 text-warm" />
+          </div>
+          <p className="text-parchment-dim text-sm">Loading Novel Weaver...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-screen flex flex-col bg-ink bg-noise bg-ambient overflow-hidden overflow-x-hidden">
-      {/* ===== TOP BAR — Simplified, warm ===== */}
+      {/* ===== TOP BAR ===== */}
       <header className="flex items-center justify-between px-4 md:px-6 py-2.5 border-b border-ink-400/8 bg-ink flex-shrink-0 z-20">
         {/* Left: Brand + Title */}
         <div className="flex items-center gap-3 min-w-0">
@@ -717,7 +844,7 @@ const App: React.FC = () => {
           />
         </div>
 
-        {/* Right: Minimal actions */}
+        {/* Right: Actions + User Menu */}
         <div className="flex items-center gap-1">
           {activeProject && activeProject.manuscript.length > 0 && (
             <button
@@ -753,34 +880,84 @@ const App: React.FC = () => {
           >
             <SettingsIcon className="w-4 h-4" />
           </button>
+
+          {activeProject && (
+            <button
+              onClick={() => setStoryPanelOpen(o => !o)}
+              className={`p-2 rounded-lg transition-colors md:hidden ${
+                isStoryPanelOpen
+                  ? 'text-warm bg-warm/10'
+                  : 'text-parchment-faint hover:text-parchment-dim hover:bg-ink-300/30'
+              }`}
+              title="Story Memory"
+              id="btn-mobile-story-panel"
+            >
+              <PenIcon className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* User Menu (when authenticated) */}
+          {userProfile && (
+            <>
+              <div className="w-px h-5 bg-ink-400/15 mx-1" />
+              <UserMenu
+                profile={userProfile}
+                usage={usage}
+                onSignOut={() => {
+                  setUserProfile(null);
+                  setUsage(null);
+                  setShowAuthModal(true);
+                }}
+                onOpenPricing={() => setShowPricingModal(true)}
+              />
+            </>
+          )}
+
+          {/* Sign In button (when not authenticated and Supabase is configured) */}
+          {!userProfile && isSupabaseConfigured() && (
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="ml-2 px-3 py-1.5 rounded-xl text-sm text-warm border border-warm/20 hover:bg-warm/5 transition-all font-medium"
+            >
+              Sign In
+            </button>
+          )}
         </div>
       </header>
 
-      {/* ===== MAIN CONTENT — Conversation-first layout ===== */}
+      {/* ===== MAIN CONTENT ===== */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Chat — the living heart of the app */}
+        {/* Chat */}
         <main className="flex-1 flex flex-col overflow-hidden">
           {activeProject ? (
-            <ChatView
-              messages={activeProject.messages}
-              onSendMessage={handleSendMessage}
-              isLoading={isLoading}
-              onEditMessage={handleEditMessage}
-              onRegenerateMessage={handleRegenerateMessage}
-              onStopGenerating={() => {
-                abortRef.current?.abort();
-                abortRef.current = null;
-                thinkingRef.current = null;
-                clearStallDetection();
-                setThinkingStatus(null);
-                setIsLoading(false);
-                setStreamingText(null);
-              }}
-              streamingText={streamingText}
-              thinkingStatus={thinkingStatus}
-              currentModel={settings.ai.model}
-              project={activeProject}
-            />
+            <>
+              {/* Usage banner (shown above chat when near/at limit) */}
+              {!isLoading && activeProject.messages.length > 0 && (
+                <div className="flex-shrink-0 px-4 md:px-6 lg:px-12 pt-2">
+                  <UsageBanner usage={usage} onUpgrade={() => setShowPricingModal(true)} />
+                </div>
+              )}
+              <ChatView
+                messages={activeProject.messages}
+                onSendMessage={handleSendMessage}
+                isLoading={isLoading}
+                onEditMessage={handleEditMessage}
+                onRegenerateMessage={handleRegenerateMessage}
+                onStopGenerating={() => {
+                  abortRef.current?.abort();
+                  abortRef.current = null;
+                  thinkingRef.current = null;
+                  clearStallDetection();
+                  setThinkingStatus(null);
+                  setIsLoading(false);
+                  setStreamingText(null);
+                }}
+                streamingText={streamingText}
+                thinkingStatus={thinkingStatus}
+                currentModel={settings.ai.model}
+                project={activeProject}
+              />
+            </>
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <p className="text-parchment-faint text-sm">Loading your story...</p>
@@ -788,7 +965,7 @@ const App: React.FC = () => {
           )}
         </main>
 
-        {/* Story Memory — secondary reference panel, on the right */}
+        {/* Story Memory panel */}
         {activeProject && (
           <StoryPanel
             notes={activeProject.notes}
@@ -802,11 +979,18 @@ const App: React.FC = () => {
         )}
       </div>
 
-      {/* ===== BOTTOM STATUS BAR — Simplified, warm ===== */}
+      {/* ===== BOTTOM STATUS BAR ===== */}
       <footer className="flex items-center justify-between px-4 md:px-6 py-1.5 border-t border-ink-400/6 bg-transparent text-[10px] text-parchment-faint/40 flex-shrink-0 z-10">
         <div className="flex items-center gap-2">
           <span className="text-warm/40">✦</span>
           <span>{getProgressLabel()}</span>
+          {/* Online/Offline indicator */}
+          {userProfile && (
+            <span className="flex items-center gap-1 ml-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-sage/60" />
+              <span>synced</span>
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-4">
           {activeProject && activeProject.wordCount > 0 && (
@@ -814,6 +998,11 @@ const App: React.FC = () => {
           )}
           {activeProject && activeProject.manuscript.length > 0 && (
             <span>{activeProject.manuscript.length} {activeProject.manuscript.length === 1 ? 'chapter' : 'chapters'}</span>
+          )}
+          {usage && usage.messagesLimit !== Infinity && (
+            <span className={usage.isNearLimit ? 'text-amber-500/60' : ''}>
+              {usage.messagesUsed}/{usage.messagesLimit} msgs
+            </span>
           )}
           <button
             onClick={handleExport}
@@ -859,6 +1048,25 @@ const App: React.FC = () => {
         onSave={(s) => {
           setSettings(s);
           setSettingsModalOpen(false);
+        }}
+      />
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onAuthenticated={() => setShowAuthModal(false)}
+      />
+
+      {/* Pricing Modal */}
+      <PricingModal
+        isOpen={showPricingModal}
+        onClose={() => setShowPricingModal(false)}
+        currentTier={userProfile?.tier || 'free'}
+        userProfile={userProfile}
+        onTierChanged={(newTier) => {
+          setUserProfile(prev => prev ? { ...prev, tier: newTier as UserProfile['tier'] } : null);
+          setShowPricingModal(false);
         }}
       />
     </div>

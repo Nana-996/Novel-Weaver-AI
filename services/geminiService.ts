@@ -1,10 +1,14 @@
 import type { Settings, StoryNotes } from '../types';
+import { getAccessToken } from './authService';
+import { incrementLocalUsage } from './usageService';
 
-// OpenRouter API — uses nvidia/nemotron-3-super-120b-a12b:free
-// API key is loaded from .env.local (VITE_OPENROUTER_API_KEY) so it never appears in source control
+// ============================================================
+// AI Service — Calls our backend API proxy (/api/chat)
+// The OpenRouter API key is stored server-side only
+// ============================================================
 
-const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY || '';
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const CHAT_API_URL = '/api/chat';
+const EXTRACT_API_URL = '/api/extract-notes';
 const DEFAULT_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 
 const getSystemInstruction = (settings: Settings['ai']) => `You are Novel Weaver, an elite AI novelist and co-author. Your sole purpose is to produce prose so organically human that no AI detection system, critical reader, or fellow writer can tell it was machine-generated. Every sentence must breathe with the chaotic, textured, and imperfect rhythm of real human creativity.
@@ -150,7 +154,6 @@ interface CreateChatParams {
 
 // ============================================================
 // Stub engine object for backward compatibility with App.tsx
-// (App.tsx calls webLLMEngine.setProgressCallback — this is a no-op now)
 // ============================================================
 
 class StubEngine {
@@ -178,10 +181,10 @@ export const AGENTROUTER_MODELS = BROWSER_MODELS;
 export const AVAILABLE_MODELS = BROWSER_MODELS;
 
 // ============================================================
-// Chat implementation using OpenRouter API
+// Chat implementation — calls our backend API proxy
 // ============================================================
 
-class OpenRouterChatImpl implements GeminiChat {
+class BackendChatImpl implements GeminiChat {
   private model: string;
   private history: Array<{ role: 'user' | 'model'; parts: { text: string }[] }>;
   private settings: Settings['ai'];
@@ -204,25 +207,27 @@ class OpenRouterChatImpl implements GeminiChat {
       { role: 'user' as const, content: params.message }
     ];
 
-    const body = JSON.stringify({
-      model: this.model,
-      messages,
-      temperature: this.settings.temperature,
-      top_p: this.settings.topP,
-      stream: true,
-    });
+    // Get auth token for API calls
+    const token = await getAccessToken();
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
 
     let response: Response;
     try {
-      response = await fetch(OPENROUTER_BASE_URL, {
+      response = await fetch(CHAT_API_URL, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-          'HTTP-Referer': window.location.origin,
-          'X-Title': 'Novel Weaver AI',
-        },
-        body,
+        headers,
+        body: JSON.stringify({
+          messages,
+          model: this.model,
+          temperature: this.settings.temperature,
+          topP: this.settings.topP,
+        }),
         signal: params.abortSignal,
       });
     } catch (error: any) {
@@ -234,10 +239,18 @@ class OpenRouterChatImpl implements GeminiChat {
       let errorMsg = `AI service error (${response.status})`;
       try {
         const errData = await response.json();
-        errorMsg = errData.error?.message || errData.message || errorMsg;
+        errorMsg = errData.error || errData.message || errorMsg;
       } catch { /* ignore parse error */ }
+
+      // Special handling for rate limit
+      if (response.status === 429) {
+        throw new Error(errorMsg);
+      }
       throw new Error(errorMsg);
     }
+
+    // Track usage locally (server also tracks, but this gives immediate UI feedback)
+    incrementLocalUsage();
 
     const reader = response.body?.getReader();
     if (!reader) {
@@ -298,41 +311,12 @@ class OpenRouterChatImpl implements GeminiChat {
 
 export const createChat = (params: CreateChatParams): GeminiChat => {
   const model = params.settings.model || DEFAULT_MODEL;
-  return new OpenRouterChatImpl(model, params.history || [], params.settings);
+  return new BackendChatImpl(model, params.history || [], params.settings);
 };
 
 // ============================================================
-// Story Memory Auto-Extraction
-// Analyzes conversation and extracts structured story notes
+// Story Memory Auto-Extraction — now calls backend API
 // ============================================================
-
-const EXTRACTION_SYSTEM_PROMPT = `You are a story analysis assistant. Your ONLY job is to extract and organize story information from conversations into a structured format.
-
-You will receive:
-1. The current Story Memory (what's already been captured)
-2. Recent conversation messages between a writer and their AI writing partner
-
-Your task: Analyze the conversation and UPDATE the Story Memory with any new or changed information. You must MERGE new info with existing notes — never delete existing information unless it was explicitly contradicted or changed.
-
-RESPOND WITH ONLY VALID JSON in this exact format (no markdown, no code fences, no explanation):
-{
-  "idea": "The core premise/concept of the novel. Include genre, setting era, central conflict, themes, and tone.",
-  "characters": "All characters mentioned. For each: name, role, key traits, motivations, relationships, arc. Use line breaks between characters.",
-  "plot": "The main story arc, key plot points, conflicts, twists, subplots. Structure as a narrative summary.",
-  "outline": "Chapter-by-chapter plan if discussed. Format as: Chapter 1: [Title] - [Summary]. One per line."
-}
-
-CRITICAL RULES:
-- PRESERVE all existing information. Only ADD or UPDATE, never remove.
-- If a field has no new information, return the existing content unchanged.
-- If a field is empty and the conversation has relevant info, fill it in.
-- Be thorough — capture every character name, plot detail, theme, and structural element mentioned.
-- For characters: capture ALL details — physical descriptions, backstories, speech patterns, quirks, relationships.
-- For plot: include themes, tone, narrative structure, pacing notes, genre conventions discussed.
-- For idea: distill the core "elevator pitch" plus genre, setting, and thematic elements.
-- For outline: only populate if specific chapter plans or story structure was discussed.
-- Keep the language clear and organized — this is a reference document, not prose.
-- If the conversation only contains greetings or meta-discussion with no story content, return all fields unchanged.`;
 
 export interface StoryNotesUpdate {
   idea: string;
@@ -345,54 +329,26 @@ export async function extractStoryNotes(
   messages: Array<{ role: 'user' | 'model'; text: string }>,
   currentNotes: StoryNotes,
 ): Promise<StoryNotesUpdate | null> {
-  // Only analyze the most recent messages to keep context focused
   const MAX_MESSAGES = 10;
   const recentMessages = messages.slice(-MAX_MESSAGES);
 
   if (recentMessages.length === 0) return null;
 
-  // Build the context for extraction
-  const currentMemory = `CURRENT STORY MEMORY:
----
-IDEA: ${currentNotes.idea || '(empty)'}
----
-CHARACTERS: ${currentNotes.characters || '(empty)'}
----
-PLOT: ${currentNotes.plot || '(empty)'}
----
-OUTLINE: ${currentNotes.outline || '(empty)'}
----`;
-
-  const conversationText = recentMessages.map(m => {
-    const label = m.role === 'user' ? 'WRITER' : 'AI PARTNER';
-    return `${label}: ${m.text}`;
-  }).join('\n\n');
-
-  const userPrompt = `${currentMemory}
-
-RECENT CONVERSATION:
-${conversationText}
-
-Analyze the conversation above and return the updated Story Memory as JSON. Remember: MERGE new information with existing — never delete what's already there.`;
-
   try {
-    const response = await fetch(OPENROUTER_BASE_URL, {
+    const token = await getAccessToken();
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(EXTRACT_API_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': window.location.origin,
-        'X-Title': 'Novel Weaver AI - Story Extraction',
-      },
+      headers,
       body: JSON.stringify({
-        model: DEFAULT_MODEL,
-        messages: [
-          { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt },
-        ],
-        temperature: 0.1, // Low temperature for accurate extraction
-        top_p: 0.9,
-        stream: false,
+        messages: recentMessages,
+        currentNotes,
       }),
     });
 
@@ -401,31 +357,15 @@ Analyze the conversation above and return the updated Story Memory as JSON. Reme
       return null;
     }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
+    const parsed = await response.json();
 
-    if (!content) {
-      console.warn('[StoryExtraction] No content in response');
-      return null;
-    }
-
-    // Parse the JSON response — handle potential markdown code fences
-    let jsonStr = content.trim();
-    // Strip markdown code fences if present
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-    }
-
-    const parsed = JSON.parse(jsonStr);
-
-    // Validate the structure
     if (typeof parsed.idea !== 'string' || typeof parsed.characters !== 'string' ||
         typeof parsed.plot !== 'string' || typeof parsed.outline !== 'string') {
       console.warn('[StoryExtraction] Invalid response structure');
       return null;
     }
 
-    // Only return if something actually changed
+    // Only return if something changed
     const hasChanges =
       parsed.idea.trim() !== currentNotes.idea.trim() ||
       parsed.characters.trim() !== currentNotes.characters.trim() ||

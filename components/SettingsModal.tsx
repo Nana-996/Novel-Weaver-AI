@@ -58,8 +58,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
                 <span className="text-sm font-medium text-parchment">NVIDIA Nemotron 120B</span>
               </div>
               <p className="text-xs text-parchment-faint leading-relaxed">
-                Powered by <strong className="text-parchment-dim">NVIDIA Nemotron 3 Super 120B</strong> via OpenRouter — a powerful cloud AI model.
-                No downloads, no setup, no limits. Just start writing.
+                Powered by <strong className="text-parchment-dim">NVIDIA Nemotron 3 Super 120B</strong> — a powerful cloud AI model.
+                Your API calls are securely proxied through our server. Just start writing.
               </p>
             </div>
             <p className="text-xs text-parchment-faint">✅ Cloud AI is ready to use</p>
