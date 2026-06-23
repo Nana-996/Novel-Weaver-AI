@@ -39,8 +39,5 @@
     "ChatView.mobile.tsx",
     "novel-weaver-mobile",
     "novel-weaver-app"
-  ],
-  "references": [
-    { "path": "./tsconfig.mobile.json" }
   ]
 }
