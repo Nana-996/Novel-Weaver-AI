@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { Message, Project } from '../types';
 import type { ThinkingStatus } from '../App';
-import { SendIcon, SparklesIcon, PencilIcon, RefreshIcon, StopIcon } from './Icons';
+import { SendIcon, SparklesIcon, PencilIcon, RefreshIcon, StopIcon, TrashIcon } from './Icons';
 import WelcomeScreen from './WelcomeScreen';
 import MarkdownRenderer from './MarkdownRenderer';
 import SmartSuggestions from './SmartSuggestions';
@@ -21,6 +21,7 @@ interface ChatViewProps {
   onEditMessage: (messageId: string, newText: string) => void;
   onRegenerateMessage: (messageId: string, model: string) => Promise<void>;
   onStopGenerating: () => void;
+  onDeleteMessagePair: (messageId: string) => void;
   streamingText: string | null;
   thinkingStatus: ThinkingStatus | null;
   currentModel: string;
@@ -34,6 +35,7 @@ const ChatView: React.FC<ChatViewProps> = ({
   onEditMessage,
   onRegenerateMessage,
   onStopGenerating,
+  onDeleteMessagePair,
   streamingText,
   thinkingStatus,
   currentModel,
@@ -183,6 +185,13 @@ const ChatView: React.FC<ChatViewProps> = ({
                         >
                           <RefreshIcon className="w-3 h-3" />
                           <span>Try again</span>
+                        </button>
+                        <button
+                          onClick={() => onDeleteMessagePair(msg.id)}
+                          className="flex items-center gap-1 px-2 py-1 rounded-md text-parchment-faint/60 hover:text-red-500/80 hover:bg-red-500/10 transition-colors text-[11px]"
+                        >
+                          <TrashIcon className="w-3 h-3" />
+                          <span>Delete</span>
                         </button>
                         <span className="text-[10px] text-parchment-faint/40 ml-auto font-mono">
                           {(msg.text.match(/\S+/g) || []).length} words

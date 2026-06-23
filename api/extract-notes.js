@@ -47,15 +47,16 @@ async function verifyUser(authHeader) {
 }
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
+  // CORS headers (must be set before any method checks)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
   if (!OPENROUTER_API_KEY) {
     return res.status(500).json({ error: 'AI service not configured.' });
@@ -104,7 +105,7 @@ OUTLINE: ${currentNotes?.outline || '(empty)'}
         'X-Title': 'Novel Weaver AI - Story Extraction',
       },
       body: JSON.stringify({
-        model: 'nvidia/nemotron-3-super-120b-a12b:free',
+        model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
         messages: [
           { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },

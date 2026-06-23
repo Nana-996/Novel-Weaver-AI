@@ -34,7 +34,7 @@ declare const jspdf: any;
 
 const DEFAULT_SETTINGS: Settings = {
   ai: {
-    model: 'nvidia/nemotron-3-super-120b-a12b:free',
+    model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
     temperature: 0.7,
     topK: 40,
     topP: 0.95,
@@ -60,7 +60,7 @@ const getInitialSettings = (): Settings => {
     if (savedSettings) {
       const parsed = JSON.parse(savedSettings);
       if (parsed.ai) {
-        parsed.ai.model = 'nvidia/nemotron-3-super-120b-a12b:free';
+        parsed.ai.model = 'nvidia/nemotron-3-ultra-550b-a55b:free';
         delete parsed.ai.provider;
       }
       return {
@@ -512,6 +512,40 @@ const App: React.FC = () => {
     setProjects(rebuildManuscript(updated, activeProjectId));
   };
 
+  const handleDeleteMessagePair = (messageId: string) => {
+    if (!activeProjectId) return;
+    const currentProject = projects.find(p => p.id === activeProjectId);
+    if (!currentProject) return;
+
+    const msgIndex = currentProject.messages.findIndex(m => m.id === messageId);
+    if (msgIndex === -1) return;
+
+    let startIndex = msgIndex;
+    let deleteCount = 1;
+
+    const msg = currentProject.messages[msgIndex];
+    if (msg.role === 'model') {
+      if (msgIndex > 0 && currentProject.messages[msgIndex - 1].role === 'user') {
+        startIndex = msgIndex - 1;
+        deleteCount = 2;
+      }
+    } else {
+      if (msgIndex < currentProject.messages.length - 1 && currentProject.messages[msgIndex + 1].role === 'model') {
+        deleteCount = 2;
+      }
+    }
+
+    if (!window.confirm("Delete this response and its corresponding prompt?")) return;
+
+    const updatedMessages = [...currentProject.messages];
+    updatedMessages.splice(startIndex, deleteCount);
+
+    const updatedProjects = projects.map(p =>
+      p.id === activeProjectId ? { ...p, messages: updatedMessages } : p
+    );
+    setProjects(rebuildManuscript(updatedProjects, activeProjectId));
+  };
+
   const handleRegenerateMessage = async (messageId: string, model: string) => {
     if (!activeProject || !chatRef.current) return;
     const msgIndex = activeProject.messages.findIndex(m => m.id === messageId);
@@ -943,6 +977,7 @@ const App: React.FC = () => {
                 isLoading={isLoading}
                 onEditMessage={handleEditMessage}
                 onRegenerateMessage={handleRegenerateMessage}
+                onDeleteMessagePair={handleDeleteMessagePair}
                 onStopGenerating={() => {
                   abortRef.current?.abort();
                   abortRef.current = null;

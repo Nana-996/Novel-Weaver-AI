@@ -9,7 +9,7 @@ import { incrementLocalUsage } from './usageService';
 
 const CHAT_API_URL = '/api/chat';
 const EXTRACT_API_URL = '/api/extract-notes';
-const DEFAULT_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
+const DEFAULT_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free';
 
 const getSystemInstruction = (settings: Settings['ai']) => `You are Novel Weaver, an elite AI novelist and co-author. Your sole purpose is to produce prose so organically human that no AI detection system, critical reader, or fellow writer can tell it was machine-generated. Every sentence must breathe with the chaotic, textured, and imperfect rhythm of real human creativity.
 
@@ -169,8 +169,8 @@ export const webLLMEngine = new StubEngine();
 export const BROWSER_MODELS = [
   {
     id: DEFAULT_MODEL,
-    label: '🚀 Nemotron 120B (Cloud AI)',
-    description: 'NVIDIA Nemotron 3 Super 120B — powerful cloud AI, no downloads needed',
+    label: '🚀 Nemotron 550B (Cloud AI)',
+    description: 'NVIDIA Nemotron 3 Ultra 550B — powerful cloud AI, no downloads needed',
     vram: 'Cloud',
   },
 ];
@@ -217,17 +217,21 @@ class BackendChatImpl implements GeminiChat {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
+    let apiUrl = CHAT_API_URL;
+    let finalHeaders = { ...headers };
+    let requestBody: any = {
+      messages,
+      model: this.model,
+      temperature: this.settings.temperature,
+      topP: this.settings.topP,
+    };
+
     let response: Response;
     try {
-      response = await fetch(CHAT_API_URL, {
+      response = await fetch(apiUrl, {
         method: 'POST',
-        headers,
-        body: JSON.stringify({
-          messages,
-          model: this.model,
-          temperature: this.settings.temperature,
-          topP: this.settings.topP,
-        }),
+        headers: finalHeaders,
+        body: JSON.stringify(requestBody),
         signal: params.abortSignal,
       });
     } catch (error: any) {
@@ -343,16 +347,19 @@ export async function extractStoryNotes(
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(EXTRACT_API_URL, {
+    const apiUrl = EXTRACT_API_URL;
+    const finalHeaders = { ...headers };
+    const requestBody: any = {
+      messages: recentMessages,
+      currentNotes,
+    };
+    const response = await fetch(apiUrl, {
       method: 'POST',
-      headers,
-      body: JSON.stringify({
-        messages: recentMessages,
-        currentNotes,
-      }),
-    });
+      headers: finalHeaders,
+      body: JSON.stringify(requestBody),
+    }).catch(() => null);
 
-    if (!response.ok) {
+    if (!response || !response.ok) {
       console.warn('[StoryExtraction] API error:', response.status);
       return null;
     }
