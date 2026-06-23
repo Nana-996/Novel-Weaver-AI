@@ -348,7 +348,10 @@ const ChatView: React.FC<ChatViewProps> = ({
           </div>
 
           {/* Composer */}
-          <div className="flex-shrink-0 px-4 py-3 md:px-6 lg:px-12 md:pb-4 border-t border-ink-400/8 bg-ink">
+          <div 
+            className="flex-shrink-0 px-4 py-3 md:px-6 lg:px-12 md:pb-4 border-t border-ink-400/8 bg-ink"
+            style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+          >
             <div className="max-w-3xl mx-auto">
               <div className="bg-ink-100 rounded-2xl border border-ink-400/15 hover:border-warm/15 input-warm transition-all flex items-end p-1.5">
                 <textarea

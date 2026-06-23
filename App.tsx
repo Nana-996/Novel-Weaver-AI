@@ -883,7 +883,10 @@ const App: React.FC = () => {
   return (
     <div className="h-screen w-screen flex flex-col bg-ink bg-noise bg-ambient overflow-hidden overflow-x-hidden">
       {/* ===== TOP BAR ===== */}
-      <header className="flex items-center justify-between px-4 md:px-6 py-2.5 border-b border-ink-400/8 bg-ink flex-shrink-0 z-20">
+      <header 
+        className="flex items-center justify-between px-4 md:px-6 pb-2.5 border-b border-ink-400/8 bg-ink flex-shrink-0 z-20"
+        style={{ paddingTop: 'max(0.625rem, env(safe-area-inset-top))' }}
+      >
         {/* Left: Brand + Title */}
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex items-center gap-2 flex-shrink-0">
