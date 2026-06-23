@@ -21,6 +21,7 @@ export interface Project {
   id: string;
   title: string;
   createdAt: number;
+  updatedAt?: number;
   messages: Message[];
   manuscript: Chapter[];
   wordCount: number;

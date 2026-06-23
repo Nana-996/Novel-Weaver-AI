@@ -110,7 +110,16 @@ const App: React.FC = () => {
     redo,
     canUndo,
     canRedo,
-  } = useHistoryState<Project[]>(initialProjectsList);
+  } = useHistoryState<Project[]>(initialProjectsList, (newProjects, oldProjects) => {
+    // Middleware: stamp modified projects with updatedAt
+    return newProjects.map(p => {
+      const oldP = oldProjects.find(op => op.id === p.id);
+      if (!oldP || JSON.stringify(oldP) !== JSON.stringify(p)) {
+        return { ...p, updatedAt: Date.now() };
+      }
+      return p;
+    });
+  });
 
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => {
     try {
@@ -209,6 +218,22 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // Auto-sync when the app regains focus (e.g. switching back to phone from laptop)
+  useEffect(() => {
+    const handleFocus = async () => {
+      if (userProfile && isSupabaseConfigured()) {
+        const synced = await syncProjects(userProfile.id, loadProjectsFromLocal());
+        if (synced.length > 0) {
+          // Use initial=true to prevent adding the sync to undo history
+          setProjects(synced, true);
+        }
+      }
+    };
+    
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [userProfile, setProjects]);
+
   // Handle Paystack callback (check URL for payment reference)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
@@ -295,10 +320,11 @@ const App: React.FC = () => {
       id: `proj-${Date.now()}`,
       title: 'My New Story',
       createdAt: Date.now(),
+      updatedAt: Date.now(),
       messages: [],
       manuscript: [],
       wordCount: 0,
-      notes: createEmptyNotes(),
+      notes: { idea: '', characters: '', plot: '', outline: '' }
     };
     if (callback) {
       callback(newProject);

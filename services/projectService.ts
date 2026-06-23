@@ -61,7 +61,7 @@ function projectToDbRow(project: Project, userId: string) {
     manuscript: project.manuscript,
     notes: project.notes,
     word_count: project.wordCount,
-    updated_at: new Date().toISOString(),
+    updated_at: project.updatedAt ? new Date(project.updatedAt).toISOString() : new Date().toISOString(),
   };
 }
 
@@ -70,6 +70,7 @@ function dbRowToProject(row: any): Project {
     id: row.id,
     title: row.title,
     createdAt: new Date(row.created_at).getTime(),
+    updatedAt: new Date(row.updated_at).getTime(),
     messages: row.messages || [],
     manuscript: row.manuscript || [],
     wordCount: row.word_count || 0,
@@ -154,23 +155,42 @@ export async function syncProjects(userId: string, localProjects: Project[]): Pr
       merged.set(p.id, p);
     }
 
-    // Merge local projects (local wins if both exist — user was editing offline)
+    // Merge local projects
     for (const p of localProjects) {
       const existing = merged.get(p.id);
+      
       if (!existing) {
+        // Is this a completely untouched default dummy project?
+        const isUntouchedDummy = p.messages.length === 0 && 
+                                 p.wordCount === 0 && 
+                                 p.manuscript.length === 0 &&
+                                 !p.notes.idea && !p.notes.plot && !p.notes.characters && !p.notes.outline &&
+                                 p.title === 'My New Story';
+        
+        // If it's a dummy and the user already has real projects in the cloud, silently discard it
+        if (isUntouchedDummy && cloudProjects.length > 0) {
+          continue;
+        }
+
         // New local project — upload to cloud
         merged.set(p.id, p);
         saveProjectToCloud(p, userId).catch(console.error);
       } else {
-        // Both exist — keep the one with more messages (more recent edits)
-        if (p.messages.length >= existing.messages.length) {
+        // Conflict resolution: strictly use the latest updatedAt timestamp
+        const localTime = p.updatedAt || 0;
+        const cloudTime = existing.updatedAt || 0;
+
+        if (localTime > cloudTime) {
           merged.set(p.id, p);
           saveProjectToCloud(p, userId).catch(console.error);
         }
       }
     }
 
-    const syncedProjects = Array.from(merged.values());
+    // Sort by most recently updated
+    const syncedProjects = Array.from(merged.values()).sort((a, b) => 
+      (b.updatedAt || 0) - (a.updatedAt || 0)
+    );
 
     // Update local storage with merged data
     saveProjectsToLocal(syncedProjects);

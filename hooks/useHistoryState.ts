@@ -6,7 +6,7 @@ type HistoryState<T> = {
   future: T[];
 };
 
-export const useHistoryState = <T>(initialState: T) => {
+export const useHistoryState = <T>(initialState: T, middleware?: (newState: T, oldState: T) => T) => {
   const [state, setReactState] = useState<HistoryState<T>>({
     past: [],
     present: initialState,
@@ -24,7 +24,10 @@ export const useHistoryState = <T>(initialState: T) => {
    */
   const set = useCallback((newState: T | ((prevState: T) => T), initial = false, softUpdate = false) => {
     setReactState(currentState => {
-      const newPresent = newState instanceof Function ? newState(currentState.present) : newState;
+      let newPresent = newState instanceof Function ? newState(currentState.present) : newState;
+      if (middleware && !initial) {
+        newPresent = middleware(newPresent, currentState.present);
+      }
       
       // If the state is identical, do nothing.
       if (!initial && JSON.stringify(newPresent) === JSON.stringify(currentState.present)) {
