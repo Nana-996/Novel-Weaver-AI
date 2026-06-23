@@ -1,6 +1,6 @@
-// Vercel Serverless Function: /api/chat
-// Proxies chat requests to OpenRouter with auth + rate limiting
-// This keeps the OpenRouter API key server-side only
+export const config = {
+  runtime: 'edge',
+};
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -16,13 +16,11 @@ const TIER_LIMITS = {
   novelist: { messagesPerDay: Infinity },
 };
 
-// Create Supabase admin client (bypasses RLS)
 function getSupabaseAdmin() {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
   return createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 }
 
-// Verify the user's JWT and return user info
 async function verifyUser(authHeader) {
   const supabase = getSupabaseAdmin();
   if (!supabase || !authHeader) return null;
@@ -33,12 +31,10 @@ async function verifyUser(authHeader) {
   return user;
 }
 
-// Check usage and get tier
 async function checkUsage(userId) {
   const supabase = getSupabaseAdmin();
   if (!supabase) return { allowed: true, tier: 'free', used: 0, limit: 15 };
 
-  // Get user's tier from profile
   const { data: profile } = await supabase
     .from('profiles')
     .select('tier')
@@ -48,7 +44,6 @@ async function checkUsage(userId) {
   const tier = profile?.tier || 'free';
   const limits = TIER_LIMITS[tier] || TIER_LIMITS.free;
 
-  // Get today's usage
   const today = new Date().toISOString().split('T')[0];
   const { data: usage } = await supabase
     .from('usage')
@@ -63,14 +58,12 @@ async function checkUsage(userId) {
   return { allowed, tier, used, limit: limits.messagesPerDay };
 }
 
-// Increment usage count
 async function incrementUsage(userId) {
   const supabase = getSupabaseAdmin();
   if (!supabase) return;
 
   const today = new Date().toISOString().split('T')[0];
 
-  // Upsert: insert or increment
   const { data: existing } = await supabase
     .from('usage')
     .select('id, message_count')
@@ -90,108 +83,137 @@ async function incrementUsage(userId) {
   }
 }
 
-export default async function handler(req, res) {
-  // CORS headers (must be set before any method checks)
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+};
 
-  // Handle preflight
+export default async function handler(req) {
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    return new Response(null, { status: 200, headers: corsHeaders });
   }
 
-  // Only allow POST
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: corsHeaders });
   }
 
-  // Check API key is configured
   if (!OPENROUTER_API_KEY) {
-    return res.status(500).json({ error: 'AI service not configured. Please set OPENROUTER_API_KEY in environment variables.' });
+    return new Response(JSON.stringify({ error: 'AI service not configured.' }), { status: 500, headers: corsHeaders });
   }
 
-  // Authenticate user (if Supabase is configured)
-  const authHeader = req.headers.authorization;
+  const authHeader = req.headers.get('authorization');
   let userId = null;
 
   if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
     const user = await verifyUser(authHeader);
     if (!user) {
-      return res.status(401).json({ error: 'Authentication required. Please sign in.' });
+      return new Response(JSON.stringify({ error: 'Authentication required.' }), { status: 401, headers: corsHeaders });
     }
     userId = user.id;
 
-    // Check rate limits
     const usage = await checkUsage(userId);
     if (!usage.allowed) {
-      return res.status(429).json({
-        error: `Daily message limit reached (${usage.used}/${usage.limit}). Upgrade your plan for more messages.`,
-        usage,
-      });
+      return new Response(JSON.stringify({
+        error: `Daily message limit reached (${usage.used}/${usage.limit}). Upgrade your plan.`,
+        usage
+      }), { status: 429, headers: corsHeaders });
     }
   }
 
-  const { messages, model, temperature, topP } = req.body;
+  let body;
+  try {
+    body = await req.json();
+  } catch (e) {
+    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: corsHeaders });
+  }
+
+  const { messages, model, temperature, topP } = body;
 
   if (!messages || !Array.isArray(messages)) {
-    return res.status(400).json({ error: 'Invalid request: messages array required' });
+    return new Response(JSON.stringify({ error: 'Invalid request: messages array required' }), { status: 400, headers: corsHeaders });
   }
 
   try {
-    const openRouterResponse = await fetch(OPENROUTER_BASE_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': 'https://novel-weaver.app',
-        'X-Title': 'Novel Weaver AI',
-      },
-      body: JSON.stringify({
-        model: model || 'nvidia/nemotron-3-ultra-550b-a55b:free',
-        messages,
-        temperature: temperature ?? 0.7,
-        top_p: topP ?? 0.95,
-        stream: true,
-      }),
-    });
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
 
-    if (!openRouterResponse.ok) {
-      let errorMsg = `AI service error (${openRouterResponse.status})`;
+    // Start background fetch WITHOUT awaiting it before returning
+    (async () => {
+      let isDone = false;
+      const heartbeatInterval = setInterval(() => {
+        if (!isDone) {
+          // Send an SSE comment to keep the connection alive on mobile/Vercel
+          writer.write(new TextEncoder().encode(': ping\n\n')).catch(() => {});
+        }
+      }, 3000);
+
       try {
-        const errData = await openRouterResponse.json();
-        errorMsg = errData.error?.message || errData.message || errorMsg;
-      } catch { /* ignore */ }
-      return res.status(openRouterResponse.status).json({ error: errorMsg });
-    }
+        const openRouterResponse = await fetch(OPENROUTER_BASE_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+            'HTTP-Referer': 'https://novel-weaver.app',
+            'X-Title': 'Novel Weaver AI',
+          },
+          body: JSON.stringify({
+            model: model || 'nvidia/nemotron-3-ultra-550b-a55b:free',
+            messages,
+            temperature: temperature ?? 0.7,
+            top_p: topP ?? 0.95,
+            stream: true,
+          }),
+        });
 
-    // Increment usage after successful connection (before streaming)
-    if (userId) {
-      incrementUsage(userId).catch(err => console.error('Usage tracking error:', err));
-    }
+        clearInterval(heartbeatInterval);
+        isDone = true;
 
-    // Stream the SSE response back to the client
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
+        if (!openRouterResponse.ok) {
+          let errorMsg = `AI service error (${openRouterResponse.status})`;
+          try {
+            const errData = await openRouterResponse.json();
+            errorMsg = errData.error?.message || errData.message || errorMsg;
+          } catch { /* ignore */ }
+          
+          const encoder = new TextEncoder();
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ error: errorMsg })}\n\n`));
+          await writer.close();
+          return;
+        }
 
-    const reader = openRouterResponse.body.getReader();
-    const decoder = new TextDecoder();
+        if (userId) {
+          incrementUsage(userId).catch(err => console.error('Usage tracking error:', err));
+        }
 
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        res.write(chunk);
+        const reader = openRouterResponse.body.getReader();
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          await writer.write(value);
+        }
+      } catch (error) {
+        console.error('Background fetch error:', error);
+        const encoder = new TextEncoder();
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ error: error.message })}\n\n`));
+      } finally {
+        clearInterval(heartbeatInterval);
+        isDone = true;
+        await writer.close();
       }
-    } catch (streamError) {
-      console.error('Stream error:', streamError);
-    } finally {
-      res.end();
-    }
+    })();
+
+    // Return IMMEDIATELY to bypass 10s timeout limits!
+    return new Response(readable, {
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      }
+    });
   } catch (error) {
-    console.error('Chat API error:', error);
-    return res.status(500).json({ error: `Failed to connect to AI service: ${error.message}` });
+    console.error('Chat API start error:', error);
+    return new Response(JSON.stringify({ error: `Failed to start stream: ${error.message}` }), { status: 500, headers: corsHeaders });
   }
 }
