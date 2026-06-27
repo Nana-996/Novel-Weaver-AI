@@ -78,18 +78,28 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, display_name, avatar_url, tier')
+    .select('id, tier')
     .eq('id', userId)
     .single();
 
-  if (error || !data) return null;
+  if (error || !data) {
+    // If profile doesn't exist yet (race condition), create one
+    if (error?.code === 'PGRST116') {
+      const { error: insertError } = await supabase
+        .from('profiles')
+        .insert({ id: userId, tier: 'free' });
+      if (!insertError) {
+        return getUserProfile(userId); // Retry
+      }
+    }
+    return null;
+  }
 
   const session = await getSession();
   return {
     id: data.id,
     email: session?.user?.email || '',
-    displayName: data.display_name || session?.user?.email || 'Writer',
-    avatarUrl: data.avatar_url,
+    displayName: session?.user?.user_metadata?.full_name || session?.user?.email || 'Writer',
     tier: data.tier || 'free',
   };
 }
