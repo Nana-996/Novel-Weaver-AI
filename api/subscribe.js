@@ -10,9 +10,15 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 // Plan codes — create these in your Paystack Dashboard
 // Amount is in pesewas (GHS * 100)
 const PLANS = {
+  topup: {
+    name: 'Bonus Messages (Top-Up)',
+    amount: 1000, // GHS 10.00
+    interval: 'one-time',
+    plan_code: '', // Top-ups are usually one-off payments without plan codes
+  },
   writer: {
     name: 'Writer',
-    amount: 2500, // GHS 25.00
+    amount: 2000, // GHS 20.00
     interval: 'monthly',
     plan_code: process.env.PAYSTACK_WRITER_PLAN_CODE || '',
   },
@@ -82,8 +88,9 @@ export default async function handler(req, res) {
         metadata: {
           user_id: user.id,
           tier: tier,
+          type: tier === 'topup' ? 'topup' : 'subscription',
           custom_fields: [
-            { display_name: 'Plan', variable_name: 'plan', value: plan.name },
+            { display_name: 'Purchase Type', variable_name: 'type', value: plan.name },
             { display_name: 'User ID', variable_name: 'user_id', value: user.id },
           ],
         },

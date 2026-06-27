@@ -47,15 +47,18 @@ async function checkUsage(userId) {
   const today = new Date().toISOString().split('T')[0];
   const { data: usage } = await supabase
     .from('usage')
-    .select('message_count')
+    .select('message_count, bonus_messages')
     .eq('user_id', userId)
     .eq('date', today)
     .single();
 
   const used = usage?.message_count || 0;
-  const allowed = used < limits.messagesPerDay;
+  const bonus = usage?.bonus_messages || 0;
+  const totalLimit = limits.messagesPerDay === Infinity ? Infinity : limits.messagesPerDay + bonus;
+  
+  const allowed = used < totalLimit;
 
-  return { allowed, tier, used, limit: limits.messagesPerDay };
+  return { allowed, tier, used, limit: totalLimit };
 }
 
 async function incrementUsage(userId) {

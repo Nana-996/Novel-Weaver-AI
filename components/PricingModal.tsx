@@ -43,8 +43,8 @@ const PLANS: Plan[] = [
   {
     id: 'writer',
     name: 'Writer',
-    price: 'GHS 25',
-    priceAmount: 25,
+    price: 'GHS 20',
+    priceAmount: 20,
     interval: 'month',
     emoji: '📖',
     highlight: true,
@@ -218,6 +218,29 @@ const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, currentTie
               })}
             </div>
           </div>
+
+          {/* Top-Up Banner */}
+          {userProfile && currentTier !== 'novelist' && (
+            <div className="px-6 pb-6">
+              <div className="bg-ink-200/50 border border-ink-400/20 rounded-xl p-4 flex flex-col md:flex-row items-center justify-between gap-4">
+                <div>
+                  <h4 className="text-sm font-semibold text-parchment flex items-center gap-2">
+                    <span className="text-lg">🔋</span> Need a quick boost?
+                  </h4>
+                  <p className="text-xs text-parchment-dim mt-0.5">
+                    Hit your daily limit? Get 50 extra messages instantly. No subscription required.
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleUpgrade('topup')}
+                  disabled={loading !== null}
+                  className="whitespace-nowrap px-4 py-2 bg-sage hover:bg-sage-light text-white text-sm font-medium rounded-lg transition-colors shadow-sm disabled:opacity-60"
+                >
+                  {loading === 'topup' ? 'Redirecting...' : 'Top Up GHS 10'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Error */}
           {error && (

@@ -16,7 +16,7 @@ function getSupabaseAdmin() {
 // Map Paystack plan amounts (in pesewas) to tiers
 function getTierFromAmount(amount) {
   if (amount >= 5000) return 'novelist'; // GHS 50
-  if (amount >= 2500) return 'writer';   // GHS 25
+  if (amount >= 2000) return 'writer';   // GHS 20
   return 'free';
 }
 
@@ -54,16 +54,41 @@ export default async function handler(req, res) {
   try {
     switch (event.event) {
       case 'charge.success': {
-        // Successful payment — check if it has a plan (subscription)
         const data = event.data;
         const userId = data.metadata?.user_id;
-        const tier = data.metadata?.tier || getTierFromAmount(data.amount);
-
+        const isTopup = data.metadata?.type === 'topup';
+        
         if (userId) {
-          await supabase
-            .from('profiles')
-            .update({ tier })
-            .eq('id', userId);
+          if (isTopup && data.amount >= 1000) {
+            // Handle GHS 10 Top-up pack (adds 50 bonus messages)
+            const today = new Date().toISOString().split('T')[0];
+            
+            // First try to select existing usage for today
+            const { data: usageData } = await supabase
+              .from('usage')
+              .select('bonus_messages')
+              .eq('user_id', userId)
+              .eq('date', today)
+              .single();
+              
+            const currentBonus = usageData?.bonus_messages || 0;
+            
+            await supabase
+              .from('usage')
+              .upsert({ 
+                user_id: userId, 
+                date: today,
+                bonus_messages: currentBonus + 50 
+              }, { onConflict: 'user_id,date' });
+              
+          } else {
+            // Handle regular subscription
+            const tier = data.metadata?.tier || getTierFromAmount(data.amount);
+            await supabase
+              .from('profiles')
+              .update({ tier })
+              .eq('id', userId);
+          }
         }
         break;
       }

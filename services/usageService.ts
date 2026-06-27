@@ -24,7 +24,7 @@ export function getTierLimit(tier: string): number {
 }
 
 export async function getUsageToday(userId: string, tier: string): Promise<UsageInfo> {
-  const limit = getTierLimit(tier);
+  const baseLimit = getTierLimit(tier);
 
   if (!supabase) {
     // If no Supabase, use localStorage tracking
@@ -35,21 +35,24 @@ export async function getUsageToday(userId: string, tier: string): Promise<Usage
     const today = new Date().toISOString().split('T')[0];
     const { data } = await supabase
       .from('usage')
-      .select('message_count')
+      .select('message_count, bonus_messages')
       .eq('user_id', userId)
       .eq('date', today)
       .single();
 
     const used = data?.message_count || 0;
-    const percentUsed = limit === Infinity ? 0 : Math.round((used / limit) * 100);
+    const bonus = data?.bonus_messages || 0;
+    const totalLimit = baseLimit === Infinity ? Infinity : baseLimit + bonus;
+    
+    const percentUsed = totalLimit === Infinity ? 0 : Math.round((used / totalLimit) * 100);
 
     return {
       messagesUsed: used,
-      messagesLimit: limit,
+      messagesLimit: totalLimit,
       tier: tier as UsageInfo['tier'],
       percentUsed,
-      isAtLimit: used >= limit,
-      isNearLimit: limit !== Infinity && used >= limit * 0.8,
+      isAtLimit: used >= totalLimit,
+      isNearLimit: totalLimit !== Infinity && used >= totalLimit * 0.8,
     };
   } catch {
     return getLocalUsage(tier);
