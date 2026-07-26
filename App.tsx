@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import ChatView from './components/ChatView';
 import StoryPanel from './components/StoryPanel';
 import ManuscriptOverlay from './components/ManuscriptOverlay';
@@ -1133,6 +1134,9 @@ const App: React.FC = () => {
           setShowPricingModal(false);
         }}
       />
+
+      {/* Vercel Web Analytics */}
+      <Analytics />
     </div>
   );
 };
