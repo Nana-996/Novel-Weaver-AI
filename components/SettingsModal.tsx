@@ -54,11 +54,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, settings
           <div className="space-y-3">
             <div className="p-3 rounded-lg bg-ink-200/50 border border-gold/10">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-lg">🚀</span>
-                <span className="text-sm font-medium text-parchment">NVIDIA Nemotron 120B</span>
+                <span className="text-lg">✨</span>
+                <span className="text-sm font-medium text-parchment">Claude Opus 4.8</span>
               </div>
               <p className="text-xs text-parchment-faint leading-relaxed">
-                Powered by <strong className="text-parchment-dim">NVIDIA Nemotron 3 Super 120B</strong> — a powerful cloud AI model.
+                Powered by <strong className="text-parchment-dim">Claude Opus 4.8</strong> via AgentRouter — a powerful cloud AI model.
                 Your API calls are securely proxied through our server. Just start writing.
               </p>
             </div>

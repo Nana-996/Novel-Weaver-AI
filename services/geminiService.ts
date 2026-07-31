@@ -4,12 +4,12 @@ import { incrementLocalUsage } from './usageService';
 
 // ============================================================
 // AI Service — Calls our backend API proxy (/api/chat)
-// The OpenRouter API key is stored server-side only
+// The AgentRouter API key is stored server-side only
 // ============================================================
 
 const CHAT_API_URL = '/api/chat';
 const EXTRACT_API_URL = '/api/extract-notes';
-const DEFAULT_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+const DEFAULT_MODEL = 'claude-opus-4-8';
 
 const getSystemInstruction = (settings: Settings['ai']) => `You are Novel Weaver, an elite AI novelist and co-author. Your sole purpose is to produce prose so organically human that no AI detection system, critical reader, or fellow writer can tell it was machine-generated. Every sentence must breathe with the chaotic, textured, and imperfect rhythm of real human creativity.
 
@@ -169,8 +169,8 @@ export const webLLMEngine = new StubEngine();
 export const BROWSER_MODELS = [
   {
     id: DEFAULT_MODEL,
-    label: '🚀 Nemotron 550B (Cloud AI)',
-    description: 'NVIDIA Nemotron 3 Ultra 550B — powerful cloud AI, no downloads needed',
+    label: 'Claude Opus 4.8 (AgentRouter)',
+    description: 'Anthropic Claude Opus 4.8 via AgentRouter — powerful cloud AI',
     vram: 'Cloud',
   },
 ];

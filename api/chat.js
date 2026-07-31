@@ -3,9 +3,7 @@ export const config = {
 };
 
 import { createClient } from '@supabase/supabase-js';
-
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
+import { AGENTROUTER_API_KEY, AGENTROUTER_BASE_URL, DEFAULT_MODEL, getAgentRouterHeaders } from './agentrouter-config.js';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
@@ -101,7 +99,7 @@ export default async function handler(req) {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: corsHeaders });
   }
 
-  if (!OPENROUTER_API_KEY) {
+  if (!AGENTROUTER_API_KEY) {
     return new Response(JSON.stringify({ error: 'AI service not configured.' }), { status: 500, headers: corsHeaders });
   }
 
@@ -137,6 +135,9 @@ export default async function handler(req) {
     return new Response(JSON.stringify({ error: 'Invalid request: messages array required' }), { status: 400, headers: corsHeaders });
   }
 
+  const validModels = ['claude-opus-4-8', 'claude-3-7-sonnet', 'gpt-4o'];
+  const targetModel = (model && validModels.includes(model)) ? model : DEFAULT_MODEL;
+
   try {
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
@@ -152,36 +153,30 @@ export default async function handler(req) {
       }, 3000);
 
       try {
-        const openRouterResponse = await fetch(OPENROUTER_BASE_URL, {
+        const payload = {
+          model: targetModel,
+          messages,
+          stream: true,
+        };
+
+        const aiResponse = await fetch(AGENTROUTER_BASE_URL, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-            'HTTP-Referer': 'https://novel-weaver.app',
-            'X-Title': 'Novel Weaver AI',
-          },
-          body: JSON.stringify({
-            model: model || 'nvidia/nemotron-3-ultra-550b-a55b:free',
-            messages,
-            temperature: temperature ?? 0.7,
-            top_p: topP ?? 0.95,
-            stream: true,
-          }),
+          headers: getAgentRouterHeaders(),
+          body: JSON.stringify(payload),
         });
 
         clearInterval(heartbeatInterval);
         isDone = true;
 
-        if (!openRouterResponse.ok) {
-          let errorMsg = `AI service error (${openRouterResponse.status})`;
+        if (!aiResponse.ok) {
+          let errorMsg = `AI service error (${aiResponse.status})`;
           try {
-            const errData = await openRouterResponse.json();
-            errorMsg = errData.error?.message || errData.message || errorMsg;
+            const errData = await aiResponse.json();
+            errorMsg = errData.error?.message || errData.message || errData.error || errorMsg;
           } catch { /* ignore */ }
           
           const encoder = new TextEncoder();
           await writer.write(encoder.encode(`data: ${JSON.stringify({ error: errorMsg })}\n\n`));
-          await writer.close();
           return;
         }
 
@@ -189,7 +184,7 @@ export default async function handler(req) {
           incrementUsage(userId).catch(err => console.error('Usage tracking error:', err));
         }
 
-        const reader = openRouterResponse.body.getReader();
+        const reader = aiResponse.body.getReader();
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -202,7 +197,9 @@ export default async function handler(req) {
       } finally {
         clearInterval(heartbeatInterval);
         isDone = true;
-        await writer.close();
+        try {
+          await writer.close();
+        } catch { /* ignore if already closed */ }
       }
     })();
 

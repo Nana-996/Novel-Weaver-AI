@@ -3,9 +3,7 @@ export const config = {
 };
 
 import { createClient } from '@supabase/supabase-js';
-
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
+import { AGENTROUTER_API_KEY, AGENTROUTER_BASE_URL, DEFAULT_MODEL, getAgentRouterHeaders } from './agentrouter-config.js';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
@@ -62,7 +60,7 @@ export default async function handler(req) {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: corsHeaders });
   }
 
-  if (!OPENROUTER_API_KEY) {
+  if (!AGENTROUTER_API_KEY) {
     return new Response(JSON.stringify({ error: 'AI service not configured.' }), { status: 500, headers: corsHeaders });
   }
 
@@ -107,22 +105,15 @@ OUTLINE: ${currentNotes?.outline || '(empty)'}
   const userPrompt = `${currentMemory}\n\nRECENT CONVERSATION:\n${conversationText}\n\nAnalyze the conversation above and return the updated Story Memory as JSON. Remember: MERGE new information with existing — never delete what's already there.`;
 
   try {
-    const response = await fetch(OPENROUTER_BASE_URL, {
+    const response = await fetch(AGENTROUTER_BASE_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-        'HTTP-Referer': 'https://novel-weaver.app',
-        'X-Title': 'Novel Weaver AI - Story Extraction',
-      },
+      headers: getAgentRouterHeaders(),
       body: JSON.stringify({
-        model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+        model: DEFAULT_MODEL,
         messages: [
           { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
           { role: 'user', content: userPrompt },
         ],
-        temperature: 0.1,
-        top_p: 0.9,
         stream: false,
       }),
     });

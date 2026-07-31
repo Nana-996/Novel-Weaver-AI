@@ -34,7 +34,7 @@ declare const jspdf: any;
 
 const DEFAULT_SETTINGS: Settings = {
   ai: {
-    model: 'nvidia/nemotron-3-ultra-550b-a55b:free',
+    model: 'claude-opus-4-8',
     temperature: 0.7,
     topK: 40,
     topP: 0.95,
@@ -54,21 +54,27 @@ const createEmptyNotes = (): StoryNotes => ({
   outline: '',
 });
 
+const VALID_MODELS = ['claude-opus-4-8', 'claude-3-7-sonnet', 'gpt-4o'];
+
 const getInitialSettings = (): Settings => {
   try {
     const savedSettings = localStorage.getItem('novel-weaver-settings');
     if (savedSettings) {
       const parsed = JSON.parse(savedSettings);
       if (parsed.ai) {
-        parsed.ai.model = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+        if (!parsed.ai.model || !VALID_MODELS.includes(parsed.ai.model)) {
+          parsed.ai.model = 'claude-opus-4-8';
+        }
         delete parsed.ai.provider;
       }
-      return {
+      const finalSettings = {
         ...DEFAULT_SETTINGS,
         ...parsed,
-        ai: { ...DEFAULT_SETTINGS.ai, ...parsed.ai },
+        ai: { ...DEFAULT_SETTINGS.ai, ...parsed.ai, model: VALID_MODELS.includes(parsed.ai?.model) ? parsed.ai.model : 'claude-opus-4-8' },
         export: { ...DEFAULT_SETTINGS.export, ...parsed.export },
       };
+      localStorage.setItem('novel-weaver-settings', JSON.stringify(finalSettings));
+      return finalSettings;
     }
   } catch (error) {
     console.error("Failed to load settings", error);

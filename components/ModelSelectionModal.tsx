@@ -14,17 +14,22 @@ const ModelSelectionModal: React.FC<ModelSelectionModalProps> = ({
   onModelSelect,
   currentModel
 }) => {
-  // Available models - in a real app, this might come from an API
+  // Available Agent Router models
   const models = [
     { 
-      id: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', 
-      name: 'Dolphin-Mistral 24B (OpenRouter)',
-      description: 'Great for creative writing and storytelling'
+      id: 'claude-opus-4-8', 
+      name: 'Claude Opus 4.8 (AgentRouter)',
+      description: 'Most powerful model for nuanced creative writing and complex storytelling'
     },
     { 
-      id: 'deepseek/deepseek-chat-v3.1:free', 
-      name: 'DeepSeek Chat v3.1 (OpenRouter)',
-      description: 'Excellent for detailed and technical writing'
+      id: 'claude-3-7-sonnet', 
+      name: 'Claude 3.7 Sonnet (AgentRouter)',
+      description: 'Fast, highly intelligent model ideal for rapid chapter drafting'
+    },
+    { 
+      id: 'gpt-4o', 
+      name: 'GPT-4o (AgentRouter)',
+      description: 'Versatile multimodal model for broad creative tasks'
     },
   ];
 
