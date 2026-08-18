@@ -1,4 +1,4 @@
-export const AGENTROUTER_API_KEY = process.env.AGENTROUTER_API_KEY || '';
+export const AGENTROUTER_API_KEY = process.env.AGENTROUTER_API_KEY || process.env.OPENROUTER_API_KEY || '';
 export const AGENTROUTER_BASE_URL = 'https://agentrouter.org/v1/chat/completions';
 export const DEFAULT_MODEL = 'claude-opus-4-8';
 

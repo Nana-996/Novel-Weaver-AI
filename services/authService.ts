@@ -76,32 +76,39 @@ export async function getAccessToken(): Promise<string | null> {
 export async function getUserProfile(userId: string): Promise<UserProfile | null> {
   if (!supabase) return null;
 
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, tier')
-    .eq('id', userId)
-    .single();
+  const session = await getSession();
+  const email = session?.user?.email || '';
+  const displayName = session?.user?.user_metadata?.full_name || session?.user?.email?.split('@')[0] || 'Writer';
 
-  if (error || !data) {
-    // If profile doesn't exist yet (race condition), create one
-    if (error?.code === 'PGRST116') {
-      const { error: insertError } = await supabase
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, tier')
+      .eq('id', userId)
+      .single();
+
+    if (error && error.code === 'PGRST116') {
+      // If profile doesn't exist yet, insert a default free tier row
+      await supabase
         .from('profiles')
         .insert({ id: userId, tier: 'free' });
-      if (!insertError) {
-        return getUserProfile(userId); // Retry
-      }
     }
-    return null;
-  }
 
-  const session = await getSession();
-  return {
-    id: data.id,
-    email: session?.user?.email || '',
-    displayName: session?.user?.user_metadata?.full_name || session?.user?.email || 'Writer',
-    tier: data.tier || 'free',
-  };
+    return {
+      id: userId,
+      email,
+      displayName,
+      tier: data?.tier || 'free',
+    };
+  } catch (err) {
+    console.warn('[authService] Could not load profile from Supabase database, using session fallback:', err);
+    return {
+      id: userId,
+      email,
+      displayName,
+      tier: 'free',
+    };
+  }
 }
 
 // Subscribe to auth state changes
