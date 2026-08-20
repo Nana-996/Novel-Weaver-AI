@@ -9,48 +9,75 @@ export interface UserProfile {
   tier: 'free' | 'writer' | 'novelist';
 }
 
+function formatAuthError(error: any): string {
+  if (!error) return 'An unknown error occurred.';
+  const msg = error.message || String(error);
+  if (msg.toLowerCase().includes('failed to fetch') || msg.toLowerCase().includes('networkerror')) {
+    return 'Unable to connect to Supabase. Please verify your VITE_SUPABASE_URL and key in .env.local, and ensure your Supabase project is active.';
+  }
+  return msg;
+}
+
 // Sign up with email and password
 export async function signUp(email: string, password: string, displayName: string): Promise<{ user: User | null; error: string | null }> {
-  if (!supabase) return { user: null, error: 'Authentication not configured.' };
+  if (!supabase) {
+    return { user: null, error: 'Authentication is not configured. Please add your Supabase credentials to .env.local.' };
+  }
 
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { full_name: displayName },
-    },
-  });
+  try {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: displayName },
+      },
+    });
 
-  if (error) return { user: null, error: error.message };
-  return { user: data.user, error: null };
+    if (error) return { user: null, error: formatAuthError(error) };
+    return { user: data.user, error: null };
+  } catch (err: any) {
+    return { user: null, error: formatAuthError(err) };
+  }
 }
 
 // Sign in with email and password
 export async function signIn(email: string, password: string): Promise<{ user: User | null; error: string | null }> {
-  if (!supabase) return { user: null, error: 'Authentication not configured.' };
+  if (!supabase) {
+    return { user: null, error: 'Authentication is not configured. Please add your Supabase credentials to .env.local.' };
+  }
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
-  if (error) return { user: null, error: error.message };
-  return { user: data.user, error: null };
+    if (error) return { user: null, error: formatAuthError(error) };
+    return { user: data.user, error: null };
+  } catch (err: any) {
+    return { user: null, error: formatAuthError(err) };
+  }
 }
 
 // Sign in with Google OAuth
 export async function signInWithGoogle(): Promise<{ error: string | null }> {
-  if (!supabase) return { error: 'Authentication not configured.' };
+  if (!supabase) {
+    return { error: 'Authentication is not configured. Please add your Supabase credentials to .env.local.' };
+  }
 
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'google',
-    options: {
-      redirectTo: window.location.origin,
-    },
-  });
+  try {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
 
-  if (error) return { error: error.message };
-  return { error: null };
+    if (error) return { error: formatAuthError(error) };
+    return { error: null };
+  } catch (err: any) {
+    return { error: formatAuthError(err) };
+  }
 }
 
 // Sign out

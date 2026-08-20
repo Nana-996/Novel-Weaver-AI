@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { signUp, signIn, signInWithGoogle } from '../services/authService';
-import { SparklesIcon } from './Icons';
+import { signUp, signIn, signInWithGoogle, isSupabaseConfigured } from '../services/authService';
+import { SparklesIcon, XIcon } from './Icons';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -16,6 +16,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthenticated 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
+  const isConfigured = isSupabaseConfigured();
 
   if (!isOpen) return null;
 
@@ -63,7 +64,6 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthenticated 
     if (result.error) {
       setError(result.error);
     }
-    // OAuth redirects, so no need for onAuthenticated here
   };
 
   const resetForm = () => {
@@ -82,6 +82,15 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthenticated 
       {/* Modal */}
       <div className="relative w-full max-w-md overlay-content-enter">
         <div className="bg-ink rounded-2xl border border-ink-400/15 shadow-2xl overflow-hidden">
+          {/* Close button */}
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-4 z-10 p-2 text-parchment-faint hover:text-parchment hover:bg-ink-200/50 rounded-xl transition-colors"
+            title="Close"
+          >
+            <XIcon className="w-5 h-5" />
+          </button>
+
           {/* Header */}
           <div className="relative px-8 pt-8 pb-4 text-center">
             {/* Ambient glow */}
@@ -105,6 +114,21 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthenticated 
             </div>
           </div>
 
+          {/* Warning if Supabase is not configured */}
+          {!isConfigured && (
+            <div className="mx-8 mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-left">
+              <div className="flex items-start gap-2">
+                <span className="text-amber-400 text-sm">⚠️</span>
+                <div className="text-xs text-amber-200/90 leading-relaxed">
+                  <p className="font-semibold mb-1 text-amber-300">Supabase Auth Not Connected</p>
+                  <p>
+                    Please add your <code className="bg-ink-300/60 px-1 py-0.5 rounded text-warm font-mono text-[11px]">VITE_SUPABASE_URL</code> and <code className="bg-ink-300/60 px-1 py-0.5 rounded text-warm font-mono text-[11px]">VITE_SUPABASE_PUBLISHABLE_KEY</code> in <code className="bg-ink-300/60 px-1 py-0.5 rounded text-parchment font-mono text-[11px]">.env.local</code>.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {signupSuccess ? (
             <div className="px-8 pb-8">
               <button
@@ -124,7 +148,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, onAuthenticated 
               <div className="px-8">
                 <button
                   onClick={handleGoogleSignIn}
-                  disabled={loading}
+                  disabled={loading || !isConfigured}
                   className="w-full flex items-center justify-center gap-3 py-3 rounded-xl bg-ink-100 border border-ink-400/20 hover:border-ink-400/40 hover:bg-ink-200/60 text-parchment text-sm font-medium transition-all disabled:opacity-50"
                 >
                   <svg className="w-5 h-5" viewBox="0 0 24 24">
