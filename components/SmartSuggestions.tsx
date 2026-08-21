@@ -105,16 +105,16 @@ const SmartSuggestions: React.FC<SmartSuggestionsProps> = ({ project, onSend, is
     };
 
     return (
-        <div className="flex flex-wrap gap-2 px-1 pb-2 animate-fade-in">
+        <div className="flex sm:flex-wrap items-center gap-2 px-1 pb-2 overflow-x-auto no-scrollbar scroll-smooth animate-fade-in -mx-2 px-2 sm:mx-0">
             {suggestions.map((s, i) => (
                 <button
                     key={i}
                     onClick={() => onSend(s.prompt)}
                     disabled={isLoading}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-ink-100/50 border border-ink-400/15 hover:border-warm/25 hover:bg-warm/5 text-parchment-dim hover:text-warm-light text-xs transition-all duration-300 disabled:opacity-40 disabled:cursor-not-allowed group"
+                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-ink-100/60 border border-ink-400/15 hover:border-warm/25 hover:bg-warm/5 active:bg-warm/10 text-parchment-dim hover:text-warm-light text-[11px] sm:text-xs transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed group whitespace-nowrap shadow-sm"
                 >
                     <span className="text-parchment-faint group-hover:text-warm transition-colors">{iconMap[s.icon]}</span>
-                    {s.label}
+                    <span>{s.label}</span>
                 </button>
             ))}
         </div>

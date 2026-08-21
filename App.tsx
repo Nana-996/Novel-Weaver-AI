@@ -887,88 +887,94 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-ink bg-noise bg-ambient overflow-hidden overflow-x-hidden">
+    <div className="h-[100dvh] min-h-[100dvh] w-screen flex flex-col bg-ink bg-noise bg-ambient overflow-hidden overflow-x-hidden">
       {/* ===== TOP BAR ===== */}
       <header 
-        className="flex items-center justify-between px-4 md:px-6 pb-2.5 border-b border-ink-400/8 bg-ink flex-shrink-0 z-20"
-        style={{ paddingTop: 'max(0.625rem, env(safe-area-inset-top))' }}
+        className="flex items-center justify-between px-2.5 sm:px-4 md:px-6 pb-2 border-b border-ink-400/10 bg-ink flex-shrink-0 z-20"
+        style={{ paddingTop: 'max(0.5rem, env(safe-area-inset-top))' }}
       >
         {/* Left: Brand + Title */}
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <div className="w-7 h-7 rounded-lg bg-ink-200 border border-ink-400 flex items-center justify-center">
+        <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <div className="w-7 h-7 rounded-lg bg-ink-200 border border-ink-400 flex items-center justify-center shadow-sm">
               <SparklesIcon className="w-4 h-4 text-warm" />
             </div>
-            <span className="font-display text-sm font-semibold text-parchment tracking-tight hidden sm:block">Novel Weaver</span>
+            <span className="font-display text-sm font-semibold text-parchment tracking-tight hidden lg:block">Novel Weaver</span>
           </div>
-          <span className="text-ink-400/40 hidden sm:block">·</span>
+          <span className="text-ink-400/30 hidden lg:block">·</span>
           <input
             type="text"
             value={editingTitle}
             onChange={e => setEditingTitle(e.target.value)}
             onBlur={handleTitleBlur}
             disabled={!activeProject}
-            className="bg-transparent text-sm font-medium text-parchment/80 focus:text-parchment focus:outline-none focus:ring-1 focus:ring-warm/20 rounded px-2 py-1 min-w-0 truncate max-w-[200px] md:max-w-[300px] transition-colors"
+            placeholder="Untitled Story"
+            className="bg-transparent text-xs sm:text-sm font-medium text-parchment/90 focus:text-parchment focus:outline-none focus:ring-1 focus:ring-warm/20 rounded px-1.5 py-1 min-w-0 flex-1 max-w-[130px] sm:max-w-[200px] md:max-w-[280px] truncate transition-colors"
             id="project-title-input"
           />
         </div>
 
         {/* Right: Actions + User Menu */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+          {/* Read Manuscript */}
           {activeProject && activeProject.manuscript.length > 0 && (
             <button
               onClick={() => setManuscriptOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm text-parchment-dim hover:text-warm hover:bg-warm/5 transition-all"
+              className="flex items-center gap-1 px-2 sm:px-3 py-1.5 rounded-xl text-xs sm:text-sm text-parchment-dim hover:text-warm hover:bg-warm/8 border border-transparent hover:border-warm/15 transition-all"
               title="Read your manuscript (Ctrl+M)"
               id="btn-manuscript"
             >
-              <BookOpenIcon className="w-4 h-4" />
-              <span className="hidden sm:inline">Read</span>
-              <span className="text-[10px] bg-warm/15 text-warm px-1.5 py-0.5 rounded-full font-medium">
+              <BookOpenIcon className="w-4 h-4 text-warm/80" />
+              <span className="hidden md:inline">Read</span>
+              <span className="text-[10px] bg-warm/15 text-warm px-1.5 py-0.2 rounded-full font-semibold">
                 {activeProject.manuscript.length}
               </span>
             </button>
           )}
 
-          <div className="w-px h-5 bg-ink-400/15 mx-1 hidden sm:block" />
-
-          <button
-            onClick={() => setProjectsModalOpen(true)}
-            className="p-2 rounded-lg text-parchment-faint hover:text-parchment-dim hover:bg-ink-300/30 transition-colors"
-            title="My Stories"
-            id="btn-projects"
-          >
-            <FolderIcon className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={() => setSettingsModalOpen(true)}
-            className="p-2 rounded-lg text-parchment-faint hover:text-parchment-dim hover:bg-ink-300/30 transition-colors"
-            title="Settings (Ctrl+,)"
-            id="btn-settings"
-          >
-            <SettingsIcon className="w-4 h-4" />
-          </button>
-
+          {/* Story Memory button (Mobile) */}
           {activeProject && (
             <button
               onClick={() => setStoryPanelOpen(o => !o)}
-              className={`p-2 rounded-lg transition-colors md:hidden ${
+              className={`p-1.5 sm:p-2 rounded-lg transition-colors md:hidden relative ${
                 isStoryPanelOpen
-                  ? 'text-warm bg-warm/10'
+                  ? 'text-warm bg-warm/15 border border-warm/30'
                   : 'text-parchment-faint hover:text-parchment-dim hover:bg-ink-300/30'
               }`}
               title="Story Memory"
               id="btn-mobile-story-panel"
             >
               <PenIcon className="w-4 h-4" />
+              {isExtractingNotes && (
+                <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-sage animate-ping" />
+              )}
             </button>
           )}
+
+          {/* Projects Modal */}
+          <button
+            onClick={() => setProjectsModalOpen(true)}
+            className="p-1.5 sm:p-2 rounded-lg text-parchment-faint hover:text-parchment-dim hover:bg-ink-300/30 transition-colors"
+            title="My Stories"
+            id="btn-projects"
+          >
+            <FolderIcon className="w-4 h-4" />
+          </button>
+
+          {/* Settings Modal */}
+          <button
+            onClick={() => setSettingsModalOpen(true)}
+            className="p-1.5 sm:p-2 rounded-lg text-parchment-faint hover:text-parchment-dim hover:bg-ink-300/30 transition-colors"
+            title="Settings (Ctrl+,)"
+            id="btn-settings"
+          >
+            <SettingsIcon className="w-4 h-4" />
+          </button>
 
           {/* User Menu (when authenticated) */}
           {userProfile && (
             <>
-              <div className="w-px h-5 bg-ink-400/15 mx-1" />
+              <div className="w-px h-4 bg-ink-400/15 mx-0.5" />
               <UserMenu
                 profile={userProfile}
                 usage={usage}
@@ -986,7 +992,7 @@ const App: React.FC = () => {
           {!userProfile && isSupabaseConfigured() && (
             <button
               onClick={() => setShowAuthModal(true)}
-              className="ml-2 px-3 py-1.5 rounded-xl text-sm text-warm border border-warm/20 hover:bg-warm/5 transition-all font-medium"
+              className="ml-1 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl text-xs sm:text-sm text-warm border border-warm/20 hover:bg-warm/5 transition-all font-medium whitespace-nowrap"
             >
               Sign In
             </button>
@@ -995,14 +1001,14 @@ const App: React.FC = () => {
       </header>
 
       {/* ===== MAIN CONTENT ===== */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Chat */}
-        <main className="flex-1 flex flex-col overflow-hidden">
+        <main className="flex-1 flex flex-col overflow-hidden min-h-0">
           {activeProject ? (
             <>
               {/* Usage banner (shown above chat when near/at limit) */}
               {!isLoading && activeProject.messages.length > 0 && (
-                <div className="flex-shrink-0 px-4 md:px-6 lg:px-12 pt-2">
+                <div className="flex-shrink-0 px-3 sm:px-4 md:px-6 lg:px-12 pt-2">
                   <UsageBanner usage={usage} onUpgrade={() => setShowPricingModal(true)} />
                 </div>
               )}
@@ -1050,33 +1056,36 @@ const App: React.FC = () => {
       </div>
 
       {/* ===== BOTTOM STATUS BAR ===== */}
-      <footer className="flex items-center justify-between px-4 md:px-6 py-1.5 border-t border-ink-400/6 bg-transparent text-[10px] text-parchment-faint/40 flex-shrink-0 z-10">
-        <div className="flex items-center gap-2">
-          <span className="text-warm/40">✦</span>
-          <span>{getProgressLabel()}</span>
+      <footer 
+        className="flex items-center justify-between px-3 sm:px-4 md:px-6 py-1 border-t border-ink-400/8 bg-ink text-[10px] text-parchment-faint/50 flex-shrink-0 z-10"
+        style={{ paddingBottom: 'max(0.25rem, env(safe-area-inset-bottom))' }}
+      >
+        <div className="flex items-center gap-1.5 truncate mr-2">
+          <span className="text-warm/50 flex-shrink-0">✦</span>
+          <span className="truncate">{getProgressLabel()}</span>
           {/* Online/Offline indicator */}
           {userProfile && (
-            <span className="flex items-center gap-1 ml-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-sage/60" />
+            <span className="hidden sm:flex items-center gap-1 ml-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-sage/70" />
               <span>synced</span>
             </span>
           )}
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2.5 sm:gap-4 flex-shrink-0">
           {activeProject && activeProject.wordCount > 0 && (
             <span>{activeProject.wordCount.toLocaleString()} words</span>
           )}
           {activeProject && activeProject.manuscript.length > 0 && (
-            <span>{activeProject.manuscript.length} {activeProject.manuscript.length === 1 ? 'chapter' : 'chapters'}</span>
+            <span className="hidden sm:inline">{activeProject.manuscript.length} {activeProject.manuscript.length === 1 ? 'chapter' : 'chapters'}</span>
           )}
           {usage && usage.messagesLimit !== Infinity && (
-            <span className={usage.isNearLimit ? 'text-amber-500/60' : ''}>
+            <span className={usage.isNearLimit ? 'text-amber-500/80 font-medium' : ''}>
               {usage.messagesUsed}/{usage.messagesLimit} msgs
             </span>
           )}
           <button
             onClick={handleExport}
-            className="text-parchment-faint/40 hover:text-parchment-dim transition-colors"
+            className="p-1 text-parchment-faint/60 hover:text-parchment-dim hover:bg-ink-300/30 rounded transition-colors"
             title="Export (Ctrl+E)"
             id="btn-export"
           >

@@ -69,7 +69,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ profile, usage, onSignOut, onOpenPr
 
       {/* Dropdown */}
       {isOpen && (
-        <div className="absolute right-0 top-full mt-2 w-72 bg-ink rounded-xl border border-ink-400/20 shadow-xl z-50 overlay-content-enter overflow-hidden">
+        <div className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-1.5rem)] bg-ink rounded-xl border border-ink-400/20 shadow-xl z-50 overlay-content-enter overflow-hidden">
           {/* User info */}
           <div className="px-4 py-3 border-b border-ink-400/10">
             <div className="flex items-center gap-3">

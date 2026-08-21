@@ -166,29 +166,29 @@ const ChatView: React.FC<ChatViewProps> = ({
                       )}
                     </div>
                     {/* Response content — clean, document-style */}
-                    <div className="pl-8">
+                    <div className="pl-3 sm:pl-8">
                       <div className="prose-response">
                         <MarkdownRenderer text={msg.text} />
                       </div>
-                      {/* Subtle actions */}
-                      <div className="flex items-center gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 w-full">
+                      {/* Actions — visible on touch/mobile, hover on desktop */}
+                      <div className="flex items-center gap-1.5 sm:gap-1 mt-2.5 sm:mt-2 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity duration-300 w-full flex-wrap">
                         <button
                           onClick={() => handleStartEdit(msg)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-md text-parchment-faint/60 hover:text-warm hover:bg-warm/5 transition-colors text-[11px]"
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-ink-200/40 sm:bg-transparent text-parchment-faint/80 hover:text-warm hover:bg-warm/10 active:scale-95 transition-all text-[11px]"
                         >
                           <PencilIcon className="w-3 h-3" />
                           <span>Edit</span>
                         </button>
                         <button
                           onClick={() => onRegenerateMessage(msg.id, currentModel)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-md text-parchment-faint/60 hover:text-warm hover:bg-warm/5 transition-colors text-[11px]"
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-ink-200/40 sm:bg-transparent text-parchment-faint/80 hover:text-warm hover:bg-warm/10 active:scale-95 transition-all text-[11px]"
                         >
                           <RefreshIcon className="w-3 h-3" />
                           <span>Try again</span>
                         </button>
                         <button
                           onClick={() => onDeleteMessagePair(msg.id)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-md text-parchment-faint/60 hover:text-red-500/80 hover:bg-red-500/10 transition-colors text-[11px]"
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-ink-200/40 sm:bg-transparent text-parchment-faint/80 hover:text-red-400 hover:bg-red-500/10 active:scale-95 transition-all text-[11px]"
                         >
                           <TrashIcon className="w-3 h-3" />
                           <span>Delete</span>
@@ -349,18 +349,18 @@ const ChatView: React.FC<ChatViewProps> = ({
 
           {/* Composer */}
           <div 
-            className="flex-shrink-0 px-4 py-3 md:px-6 lg:px-12 md:pb-4 border-t border-ink-400/8 bg-ink"
-            style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+            className="flex-shrink-0 px-2.5 sm:px-4 py-2 sm:py-3 md:px-6 lg:px-12 md:pb-4 border-t border-ink-400/8 bg-ink"
+            style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}
           >
             <div className="max-w-3xl mx-auto">
-              <div className="bg-ink-100 rounded-2xl border border-ink-400/15 hover:border-warm/15 input-warm transition-all flex items-end p-1.5">
+              <div className="bg-ink-100 rounded-2xl border border-ink-400/15 hover:border-warm/15 input-warm transition-all flex items-end p-1 sm:p-1.5">
                 <textarea
                   ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Discuss your story, ask for changes, or say 'write the next chapter'..."
-                  className="flex-1 bg-transparent px-4 py-2.5 focus:outline-none resize-none overflow-hidden text-parchment text-sm min-h-[42px] font-sans placeholder:text-parchment-faint/30 leading-relaxed"
+                  className="flex-1 bg-transparent px-3 sm:px-4 py-2 sm:py-2.5 focus:outline-none resize-none overflow-hidden text-parchment text-xs sm:text-sm min-h-[38px] sm:min-h-[42px] font-sans placeholder:text-parchment-faint/30 leading-relaxed"
                   rows={1}
                   onInput={(e) => {
                     const target = e.target as HTMLTextAreaElement;
@@ -371,7 +371,7 @@ const ChatView: React.FC<ChatViewProps> = ({
                 {isLoading ? (
                   <button
                     onClick={onStopGenerating}
-                    className="bg-red-500/80 hover:bg-red-500 text-white rounded-xl p-2.5 transition-all duration-200 hover:scale-105 flex-shrink-0 animate-pulse-soft"
+                    className="bg-red-500/80 hover:bg-red-500 text-white rounded-xl p-2 sm:p-2.5 transition-all duration-200 hover:scale-105 active:scale-95 flex-shrink-0 animate-pulse-soft"
                     title="Stop generating"
                     id="btn-stop"
                   >
@@ -381,7 +381,7 @@ const ChatView: React.FC<ChatViewProps> = ({
                   <button
                     onClick={handleSend}
                     disabled={!input.trim()}
-                    className="bg-warm hover:bg-warm-light disabled:opacity-25 disabled:hover:bg-warm text-ink rounded-xl p-2.5 transition-all duration-200 hover:scale-105 disabled:hover:scale-100 flex-shrink-0"
+                    className="bg-warm hover:bg-warm-light disabled:opacity-25 disabled:hover:bg-warm text-ink rounded-xl p-2 sm:p-2.5 transition-all duration-200 hover:scale-105 active:scale-95 disabled:hover:scale-100 flex-shrink-0"
                     title="Send"
                     id="btn-send"
                   >

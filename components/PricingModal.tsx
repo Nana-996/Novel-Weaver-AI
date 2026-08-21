@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { UserProfile } from '../services/authService';
 import { getAccessToken } from '../services/authService';
 import { getTierInfo } from '../services/usageService';
+import { XIcon } from './Icons';
 
 interface PricingModalProps {
   isOpen: boolean;
@@ -82,16 +83,15 @@ const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, currentTie
 
   if (!isOpen) return null;
 
-  const handleUpgrade = async (planId: string) => {
-    if (planId === 'free' || planId === currentTier) return;
-
-    setLoading(planId);
+  const handleUpgrade = async (tier: string) => {
+    if (!userProfile) return;
+    setLoading(tier);
     setError(null);
 
     try {
       const token = await getAccessToken();
       if (!token) {
-        setError('Please sign in to upgrade.');
+        setError('Please sign in first.');
         setLoading(null);
         return;
       }
@@ -102,20 +102,20 @@ const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, currentTie
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ tier: planId }),
+        body: JSON.stringify({ tier }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.error || 'Failed to start payment.');
-        setLoading(null);
-        return;
+        throw new Error(data.error || 'Failed to initialize payment.');
       }
 
       // Redirect to Paystack checkout
       if (data.authorization_url) {
         window.location.href = data.authorization_url;
+      } else {
+        throw new Error('No authorization URL returned.');
       }
     } catch (err: any) {
       setError(err.message || 'Payment error.');
@@ -124,26 +124,42 @@ const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, currentTie
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4"
+      style={{
+        paddingTop: 'max(0.75rem, env(safe-area-inset-top))',
+        paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))',
+      }}
+    >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
-      <div className="relative w-full max-w-3xl overlay-content-enter">
-        <div className="bg-ink rounded-2xl border border-ink-400/15 shadow-2xl overflow-hidden">
-          {/* Header */}
-          <div className="relative px-8 pt-8 pb-2 text-center">
-            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-32 bg-warm/[0.05] blur-[80px] rounded-full" />
-            <div className="relative">
-              <h2 className="text-2xl font-display font-semibold text-parchment tracking-tight">
-                Choose Your Plan
-              </h2>
-              <p className="text-sm text-parchment-dim/70 mt-1">
-                Unlock your full creative potential
-              </p>
-            </div>
-          </div>
+      <div className="relative w-full max-w-3xl max-h-[90dvh] flex flex-col bg-ink rounded-2xl border border-ink-400/20 shadow-2xl overflow-hidden overlay-content-enter">
+        {/* Close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-3.5 right-3.5 z-10 p-2 text-parchment-faint hover:text-parchment hover:bg-ink-200/50 rounded-xl transition-colors"
+          title="Close"
+        >
+          <XIcon className="w-5 h-5" />
+        </button>
 
+        {/* Header */}
+        <div className="relative px-6 pt-6 sm:pt-8 pb-2 text-center flex-shrink-0">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-32 bg-warm/[0.05] blur-[80px] rounded-full pointer-events-none" />
+          <div className="relative">
+            <h2 className="text-xl sm:text-2xl font-display font-semibold text-parchment tracking-tight">
+              Choose Your Plan
+            </h2>
+            <p className="text-xs sm:text-sm text-parchment-dim/70 mt-1">
+              Unlock your full creative potential
+            </p>
+          </div>
+        </div>
+
+        {/* Scrollable container for plans and top-up */}
+        <div className="overflow-y-auto scrollbar-thin flex-1 min-h-0">
           {/* Plans grid */}
           <div className="px-6 py-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

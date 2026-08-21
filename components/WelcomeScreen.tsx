@@ -40,40 +40,40 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSend, isLoading }) => {
     ];
 
     return (
-        <div className="h-full flex flex-col items-center justify-center px-6 animate-fade-in relative">
+        <div className="h-full w-full flex flex-col items-center justify-center px-4 sm:px-6 py-4 sm:py-8 overflow-y-auto scrollbar-thin animate-fade-in relative">
             {/* Atmospheric ambient glow */}
-            <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute inset-0 pointer-events-none overflow-hidden">
                 <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[400px] rounded-full bg-warm/[0.03] blur-[100px]" />
                 <div className="absolute bottom-1/4 left-1/3 w-[400px] h-[300px] rounded-full bg-sage/[0.02] blur-[80px]" />
             </div>
 
-            <div className="relative z-10 flex flex-col items-center w-full max-w-2xl">
+            <div className="relative z-10 flex flex-col items-center w-full max-w-2xl my-auto">
                 {/* Companion presence */}
-                <div className="relative mb-4 flex-shrink-0">
-                    <div className="w-12 h-12 rounded-2xl bg-ink-200 border border-ink-400 flex items-center justify-center">
-                        <SparklesIcon className="w-6 h-6 text-warm" />
+                <div className="relative mb-3 sm:mb-4 flex-shrink-0">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-ink-200 border border-ink-400 flex items-center justify-center shadow-lg">
+                        <SparklesIcon className="w-5 h-5 sm:w-6 sm:h-6 text-warm" />
                     </div>
                     <div className="absolute -inset-4 rounded-3xl bg-warm/5 blur-2xl -z-10" />
                 </div>
 
                 {/* Greeting */}
-                <h1 className="text-2xl md:text-3xl font-display font-semibold text-parchment mb-1.5 leading-tight tracking-tight text-center flex-shrink-0">
+                <h1 className="text-xl sm:text-2xl md:text-3xl font-display font-semibold text-parchment mb-1 leading-tight tracking-tight text-center flex-shrink-0">
                     Let's write your novel
                 </h1>
-                <p className="text-parchment-dim/70 text-sm mb-6 text-center flex-shrink-0">
+                <p className="text-parchment-dim/70 text-xs sm:text-sm mb-4 sm:mb-6 text-center flex-shrink-0 max-w-md">
                     Start with a rough idea — I'll help you develop it, plan it, and write it with you.
                 </p>
 
                 {/* The Hero Input — this IS the main action */}
-                <div className="w-full mb-4 flex-shrink-0">
+                <div className="w-full mb-3 sm:mb-4 flex-shrink-0">
                     <div className="bg-ink-100 rounded-2xl border border-ink-400/20 hover:border-warm/20 input-warm transition-all">
                         <textarea
                             ref={inputRef}
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={handleKeyDown}
-                            placeholder="e.g. I want to write a mystery about a detective who discovers her missing sister is alive and living under a false identity..."
-                            className="w-full bg-transparent px-5 pt-4 pb-2 focus:outline-none resize-none text-parchment text-sm min-h-[72px] max-h-[140px] font-serif placeholder:text-parchment-faint/30 leading-relaxed overflow-y-auto scrollbar-thin"
+                            placeholder="e.g. I want to write a mystery about a detective who discovers her missing sister is alive..."
+                            className="w-full bg-transparent px-3.5 sm:px-5 pt-3 sm:pt-4 pb-2 focus:outline-none resize-none text-parchment text-xs sm:text-sm min-h-[64px] sm:min-h-[72px] max-h-[140px] font-serif placeholder:text-parchment-faint/30 leading-relaxed overflow-y-auto scrollbar-thin"
                             rows={2}
                             onInput={(e) => {
                                 const target = e.target as HTMLTextAreaElement;
@@ -81,17 +81,17 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSend, isLoading }) => {
                                 target.style.height = `${Math.min(target.scrollHeight, 140)}px`;
                             }}
                         />
-                        <div className="flex items-center justify-between px-4 pb-3">
-                            <p className="text-[11px] text-parchment-faint/30">
-                                I'll help you build a plot, develop characters, and start writing chapters.
+                        <div className="flex items-center justify-between px-3 sm:px-4 pb-2.5 sm:pb-3 gap-2">
+                            <p className="text-[10px] sm:text-[11px] text-parchment-faint/30 line-clamp-1">
+                                Characters, plot, outlines & full chapters.
                             </p>
                             <button
                                 onClick={handleSend}
                                 disabled={isLoading || !input.trim()}
-                                className="bg-warm hover:bg-warm-light disabled:opacity-25 disabled:hover:bg-warm text-ink rounded-xl px-4 py-2 transition-all duration-200 hover:scale-105 disabled:hover:scale-100 flex items-center gap-2 text-sm font-medium"
+                                className="bg-warm hover:bg-warm-light disabled:opacity-25 disabled:hover:bg-warm text-ink rounded-xl px-3 sm:px-4 py-1.5 sm:py-2 transition-all duration-200 hover:scale-105 active:scale-95 disabled:hover:scale-100 flex items-center gap-1.5 text-xs sm:text-sm font-medium flex-shrink-0"
                             >
-                                <span className="hidden sm:inline">{isLoading ? 'Thinking...' : 'Start writing'}</span>
-                                <SendIcon className="w-4 h-4" />
+                                <span>{isLoading ? 'Thinking...' : 'Start writing'}</span>
+                                <SendIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                             </button>
                         </div>
                     </div>
