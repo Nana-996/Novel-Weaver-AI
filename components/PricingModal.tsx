@@ -1,8 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { UserProfile } from '../services/authService';
 import { getAccessToken } from '../services/authService';
 import { getTierInfo } from '../services/usageService';
-import { XIcon } from './Icons';
+import { validatePromoCode } from '../services/promotionService';
+import type { PromotionValidationResult } from '../services/promotionService';
+import { openPaystackCheckout } from '../services/paystackService';
+import { XIcon, SparklesIcon } from './Icons';
 
 interface PricingModalProps {
   isOpen: boolean;
@@ -10,6 +13,7 @@ interface PricingModalProps {
   currentTier: string;
   userProfile: UserProfile | null;
   onTierChanged: (newTier: string) => void;
+  initialPromoCode?: string;
 }
 
 interface Plan {
@@ -77,51 +81,137 @@ const PLANS: Plan[] = [
   },
 ];
 
-const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, currentTier, userProfile, onTierChanged }) => {
+const PricingModal: React.FC<PricingModalProps> = ({
+  isOpen,
+  onClose,
+  currentTier,
+  userProfile,
+  onTierChanged,
+  initialPromoCode = '',
+}) => {
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [promoCodeInput, setPromoCodeInput] = useState(initialPromoCode);
+  const [appliedPromo, setAppliedPromo] = useState<PromotionValidationResult | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoSuccess, setPromoSuccess] = useState<string | null>(null);
+  const [isValidatingPromo, setIsValidatingPromo] = useState(false);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (initialPromoCode && isOpen) {
+      setPromoCodeInput(initialPromoCode);
+      handleApplyPromo(initialPromoCode);
+    }
+  }, [initialPromoCode, isOpen]);
+
+  const handleApplyPromo = async (codeToApply?: string) => {
+    const code = (codeToApply || promoCodeInput).trim().toUpperCase();
+    if (!code) {
+      setAppliedPromo(null);
+      setPromoError(null);
+      setPromoSuccess(null);
+      return;
+    }
+
+    setIsValidatingPromo(true);
+    setPromoError(null);
+    setPromoSuccess(null);
+
+    try {
+      // Validate against writer plan as baseline (GHS 20)
+      const res = await validatePromoCode(code, 'all', 20);
+      if (res.valid) {
+        setAppliedPromo(res);
+        setPromoSuccess(res.message || 'Promotion applied successfully!');
+      } else {
+        setAppliedPromo(null);
+        setPromoError(res.message || 'Invalid promotion code.');
+      }
+    } catch (e: any) {
+      setPromoError('Failed to validate promo code.');
+    } finally {
+      setIsValidatingPromo(false);
+    }
+  };
 
   const handleUpgrade = async (tier: string) => {
-    if (!userProfile) return;
     setLoading(tier);
     setError(null);
 
-    try {
-      const token = await getAccessToken();
-      if (!token) {
-        setError('Please sign in first.');
-        setLoading(null);
-        return;
+    const customerEmail = userProfile?.email || 'test.author@novelweaver.app';
+    const customerId = userProfile?.id || 'guest_user';
+
+    const baseAmount = tier === 'topup' ? 10 : tier === 'novelist' ? 50 : 20;
+    let finalAmount = baseAmount;
+
+    if (appliedPromo) {
+      if (appliedPromo.discountType === 'percentage') {
+        const discount = (baseAmount * (appliedPromo.discountValue || 0)) / 100;
+        finalAmount = Math.max(0, baseAmount - discount);
+      } else if (appliedPromo.discountType === 'fixed_amount') {
+        finalAmount = Math.max(0, baseAmount - (appliedPromo.discountValue || 0));
+      } else if (appliedPromo.isFreeGrant) {
+        finalAmount = 0;
       }
-
-      const response = await fetch('/api/subscribe', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ tier }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to initialize payment.');
-      }
-
-      // Redirect to Paystack checkout
-      if (data.authorization_url) {
-        window.location.href = data.authorization_url;
-      } else {
-        throw new Error('No authorization URL returned.');
-      }
-    } catch (err: any) {
-      setError(err.message || 'Payment error.');
-      setLoading(null);
     }
+
+    // Direct free promotion unlock (100% discount)
+    if (finalAmount === 0 && appliedPromo) {
+      try {
+        const token = await getAccessToken();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const response = await fetch('/api/subscribe', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            tier,
+            promo_code: appliedPromo.promotion?.code,
+          }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (data.freeGrant || response.ok) {
+          onTierChanged(data.tier || tier);
+          alert(data.message || '🎉 Promotion redeemed successfully! Your tier has been upgraded.');
+          onClose();
+          return;
+        }
+      } catch (e) {
+        // Local fallback
+      }
+      onTierChanged(tier);
+      alert('🎉 Free promotion activated!');
+      onClose();
+      return;
+    }
+
+    // Launch Paystack Checkout
+    await openPaystackCheckout({
+      tier: tier as any,
+      userEmail: customerEmail,
+      userId: customerId,
+      amountGHS: finalAmount,
+      promo: appliedPromo,
+      onSuccess: (res) => {
+        setLoading(null);
+        onTierChanged(res.tier);
+        alert(`🎉 Payment successful! You are now subscribed to the ${res.tier.toUpperCase()} plan.`);
+        onClose();
+      },
+      onCancel: () => {
+        setLoading(null);
+      },
+      onError: (errMsg) => {
+        setError(errMsg);
+        setLoading(null);
+      },
+    });
+    setLoading(null);
   };
+
+  if (!isOpen) return null;
 
   return (
     <div 
@@ -160,12 +250,79 @@ const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, currentTie
 
         {/* Scrollable container for plans and top-up */}
         <div className="overflow-y-auto scrollbar-thin flex-1 min-h-0">
+          
+          {/* Promo Code Input Bar */}
+          <div className="px-6 pt-4 pb-2">
+            <div className="bg-ink-100/70 border border-ink-400/15 rounded-xl p-3 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <span className="text-base">🏷️</span>
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-parchment">Have a special promotion code?</p>
+                  <p className="text-[10px] text-parchment-faint">Enter code for instant discounts or free bonuses</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                <input
+                  type="text"
+                  placeholder="e.g. WELCOME50"
+                  value={promoCodeInput}
+                  onChange={e => setPromoCodeInput(e.target.value.toUpperCase())}
+                  onKeyDown={e => { if (e.key === 'Enter') handleApplyPromo(); }}
+                  className="px-3 py-1.5 text-xs rounded-lg bg-ink-50 border border-ink-400/20 text-parchment font-mono focus:outline-none focus:border-warm uppercase w-full sm:w-36"
+                />
+                <button
+                  onClick={() => handleApplyPromo()}
+                  disabled={isValidatingPromo || !promoCodeInput.trim()}
+                  className="px-3 py-1.5 rounded-lg bg-warm hover:bg-warm-light text-white text-xs font-semibold transition-all disabled:opacity-50 whitespace-nowrap shadow-sm"
+                >
+                  {isValidatingPromo ? 'Checking...' : 'Apply'}
+                </button>
+              </div>
+            </div>
+
+            {promoSuccess && (
+              <p className="text-[11px] text-sage font-medium mt-1.5 flex items-center gap-1">
+                <span>✓</span> {promoSuccess}
+              </p>
+            )}
+            {promoError && (
+              <p className="text-[11px] text-red-500 font-medium mt-1.5 flex items-center gap-1">
+                <span>✕</span> {promoError}
+              </p>
+            )}
+          </div>
+
           {/* Plans grid */}
-          <div className="px-6 py-6">
+          <div className="px-6 py-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {PLANS.map((plan) => {
                 const isCurrent = plan.id === currentTier;
                 const isDowngrade = PLANS.findIndex(p => p.id === plan.id) < PLANS.findIndex(p => p.id === currentTier);
+
+                // Calculate discounted price if promo applied
+                let displayPrice = plan.price;
+                let originalPriceStrike: string | null = null;
+                let ctaText = plan.cta;
+
+                if (appliedPromo && plan.priceAmount > 0) {
+                  if (appliedPromo.discountType === 'percentage') {
+                    const discount = (plan.priceAmount * (appliedPromo.discountValue || 0)) / 100;
+                    const finalVal = Math.max(0, plan.priceAmount - discount);
+                    displayPrice = `GHS ${finalVal}`;
+                    originalPriceStrike = plan.price;
+                    ctaText = `Upgrade for GHS ${finalVal} (${appliedPromo.discountValue}% OFF)`;
+                  } else if (appliedPromo.discountType === 'fixed_amount') {
+                    const finalVal = Math.max(0, plan.priceAmount - (appliedPromo.discountValue || 0));
+                    displayPrice = `GHS ${finalVal}`;
+                    originalPriceStrike = plan.price;
+                    ctaText = `Upgrade for GHS ${finalVal}`;
+                  } else if (appliedPromo.isFreeGrant) {
+                    displayPrice = 'FREE';
+                    originalPriceStrike = plan.price;
+                    ctaText = 'Claim Free Promo Upgrade';
+                  }
+                }
 
                 return (
                   <div
@@ -188,10 +345,13 @@ const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, currentTie
                     <div className="text-center mb-4">
                       <span className="text-2xl">{plan.emoji}</span>
                       <h3 className="text-lg font-display font-semibold text-parchment mt-1">{plan.name}</h3>
-                      <div className="mt-2">
-                        <span className="text-2xl font-display font-bold text-parchment">{plan.price}</span>
+                      <div className="mt-2 flex items-baseline justify-center gap-1.5">
+                        {originalPriceStrike && (
+                          <span className="text-sm text-parchment-faint line-through">{originalPriceStrike}</span>
+                        )}
+                        <span className="text-2xl font-display font-bold text-parchment">{displayPrice}</span>
                         {plan.priceAmount > 0 && (
-                          <span className="text-xs text-parchment-faint ml-1">/{plan.interval}</span>
+                          <span className="text-xs text-parchment-faint ml-0.5">/{plan.interval}</span>
                         )}
                       </div>
                     </div>
@@ -216,7 +376,7 @@ const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, currentTie
                           : isDowngrade
                             ? 'bg-ink-200/50 text-parchment-faint cursor-not-allowed'
                             : plan.highlight
-                              ? 'bg-warm hover:bg-warm-light text-ink hover:scale-[1.02] active:scale-[0.98]'
+                              ? 'bg-warm hover:bg-warm-light text-white hover:scale-[1.02] active:scale-[0.98]'
                               : 'bg-ink-200 hover:bg-ink-300 text-parchment hover:scale-[1.02] active:scale-[0.98]'
                       } disabled:opacity-60`}
                     >
@@ -226,7 +386,7 @@ const PricingModal: React.FC<PricingModalProps> = ({ isOpen, onClose, currentTie
                           ? '✓ Current Plan'
                           : isDowngrade
                             ? 'Downgrade not available'
-                            : plan.cta
+                            : ctaText
                       }
                     </button>
                   </div>

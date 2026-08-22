@@ -8,12 +8,14 @@ import AuthModal from './components/AuthModal';
 import UserMenu from './components/UserMenu';
 import PricingModal from './components/PricingModal';
 import UsageBanner from './components/UsageBanner';
-import { SparklesIcon, BookOpenIcon, FolderIcon, SettingsIcon, PlusIcon, DownloadIcon, PenIcon } from './components/Icons';
+import PromoBanner from './components/PromoBanner';
+import AdminDashboard from './components/admin/AdminDashboard';
+import { SparklesIcon, BookOpenIcon, FolderIcon, SettingsIcon, PlusIcon, DownloadIcon, PenIcon, CrownIcon } from './components/Icons';
 import type { Project, Message, Chapter, Settings, ExportFormat, StoryNotes } from './types';
 import { createChat, extractStoryNotes } from './services/geminiService';
 import { useHistoryState } from './hooks/useHistoryState';
 import type { OpenRouterChat } from './services/geminiService';
-import { isSupabaseConfigured, onAuthStateChange, getSession, getUserProfile, getAccessToken } from './services/authService';
+import { isSupabaseConfigured, onAuthStateChange, getSession, getUserProfile, getAccessToken, isAdmin, isLocalAdminAuthorized, setLocalAdminAuthorized } from './services/authService';
 import type { UserProfile } from './services/authService';
 import { loadProjectsFromLocal, saveProjectsToLocal, syncProjects, debouncedCloudSave, deleteProjectFromCloud } from './services/projectService';
 import { getUsageToday } from './services/usageService';
@@ -104,6 +106,8 @@ const App: React.FC = () => {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showPricingModal, setShowPricingModal] = useState(false);
+  const [isAdminDashboardOpen, setIsAdminDashboardOpen] = useState(false);
+  const [promoCodeToClaim, setPromoCodeToClaim] = useState<string>('');
   const [usage, setUsage] = useState<UsageInfo | null>(null);
   const [initialSyncDone, setInitialSyncDone] = useState(false);
 
@@ -240,13 +244,44 @@ const App: React.FC = () => {
     return () => window.removeEventListener('focus', handleFocus);
   }, [userProfile, setProjects]);
 
+  // Keyboard shortcuts and URL parameters (Ctrl+Shift+A or ?admin=1 for admin access)
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const adminParam = urlParams.get('admin');
+    if (adminParam === 'true' || adminParam === '1') {
+      setLocalAdminAuthorized(true);
+      setIsAdminDashboardOpen(true);
+    }
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+Shift+A or Cmd+Shift+A toggles Admin Dashboard
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'A' || e.key === 'a')) {
+        e.preventDefault();
+        setLocalAdminAuthorized(true);
+        setIsAdminDashboardOpen(prev => !prev);
+      }
+      // Ctrl+, opens Settings
+      if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+        e.preventDefault();
+        setSettingsModalOpen(prev => !prev);
+      }
+      // Ctrl+M opens Manuscript
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'M' || e.key === 'm') && !e.shiftKey) {
+        e.preventDefault();
+        setManuscriptOpen(prev => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // Handle Paystack callback (check URL for payment reference)
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const reference = urlParams.get('reference') || urlParams.get('trxref');
 
     if (reference && userProfile) {
-      // Verify payment
       getAccessToken().then(token => {
         if (!token) return;
 
@@ -261,9 +296,7 @@ const App: React.FC = () => {
           .then(res => res.json())
           .then(data => {
             if (data.success) {
-              // Update profile tier
               setUserProfile(prev => prev ? { ...prev, tier: data.tier } : null);
-              // Clean URL
               window.history.replaceState({}, '', window.location.pathname);
               alert(`🎉 Welcome to the ${data.tier.charAt(0).toUpperCase() + data.tier.slice(1)} plan! Enjoy your upgraded features.`);
             }
@@ -888,6 +921,14 @@ const App: React.FC = () => {
 
   return (
     <div className="h-[100dvh] min-h-[100dvh] w-screen flex flex-col bg-ink bg-noise bg-ambient overflow-hidden overflow-x-hidden">
+      {/* Customer Promotion Announcement Banner */}
+      <PromoBanner
+        onOpenPricing={(code) => {
+          setPromoCodeToClaim(code || '');
+          setShowPricingModal(true);
+        }}
+      />
+
       {/* ===== TOP BAR ===== */}
       <header 
         className="flex items-center justify-between px-2.5 sm:px-4 md:px-6 pb-2 border-b border-ink-400/10 bg-ink flex-shrink-0 z-20"
@@ -916,6 +957,19 @@ const App: React.FC = () => {
 
         {/* Right: Actions + User Menu */}
         <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
+          {/* Admin Dashboard Entry Button (when authenticated as admin) */}
+          {isAdmin(userProfile) && (
+            <button
+              onClick={() => setIsAdminDashboardOpen(true)}
+              className="px-2 py-1 sm:px-2.5 sm:py-1 rounded-xl text-warm bg-warm/10 hover:bg-warm/20 border border-warm/30 transition-all font-semibold text-xs flex items-center gap-1.5 shadow-sm mr-0.5"
+              title="Admin Intelligence Dashboard"
+              id="btn-admin-dashboard"
+            >
+              <CrownIcon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Admin</span>
+            </button>
+          )}
+
           {/* Read Manuscript */}
           {activeProject && activeProject.manuscript.length > 0 && (
             <button
@@ -984,6 +1038,7 @@ const App: React.FC = () => {
                   setShowAuthModal(true);
                 }}
                 onOpenPricing={() => setShowPricingModal(true)}
+                onOpenAdmin={() => setIsAdminDashboardOpen(true)}
               />
             </>
           )}
@@ -1128,6 +1183,7 @@ const App: React.FC = () => {
           setSettings(s);
           setSettingsModalOpen(false);
         }}
+        onOpenAdmin={() => setIsAdminDashboardOpen(true)}
       />
 
       {/* Auth Modal */}
@@ -1140,13 +1196,25 @@ const App: React.FC = () => {
       {/* Pricing Modal */}
       <PricingModal
         isOpen={showPricingModal}
-        onClose={() => setShowPricingModal(false)}
+        onClose={() => {
+          setShowPricingModal(false);
+          setPromoCodeToClaim('');
+        }}
         currentTier={userProfile?.tier || 'free'}
         userProfile={userProfile}
+        initialPromoCode={promoCodeToClaim}
         onTierChanged={(newTier) => {
           setUserProfile(prev => prev ? { ...prev, tier: newTier as UserProfile['tier'] } : null);
           setShowPricingModal(false);
+          setPromoCodeToClaim('');
         }}
+      />
+
+      {/* Admin Intelligence & Monitoring Dashboard */}
+      <AdminDashboard
+        isOpen={isAdminDashboardOpen}
+        onClose={() => setIsAdminDashboardOpen(false)}
+        currentUser={userProfile}
       />
     </div>
   );

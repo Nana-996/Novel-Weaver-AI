@@ -60,11 +60,92 @@ export default async function handler(req, res) {
     return res.status(401).json({ error: 'Authentication required.' });
   }
 
-  const { tier } = req.body;
+  const { tier, promo_code } = req.body;
   const plan = PLANS[tier];
 
   if (!plan) {
-    return res.status(400).json({ error: 'Invalid plan. Choose "writer" or "novelist".' });
+    return res.status(400).json({ error: 'Invalid plan. Choose "writer", "novelist", or "topup".' });
+  }
+
+  const supabase = getSupabaseAdmin();
+  let finalAmountInPesewas = plan.amount;
+  let appliedPromo = null;
+  let discountAmountInGHS = 0;
+
+  // Validate promo code if supplied
+  if (promo_code) {
+    const cleanCode = String(promo_code).trim().toUpperCase();
+    if (supabase) {
+      const { data: promoData } = await supabase
+        .from('promotions')
+        .select('*')
+        .ilike('code', cleanCode)
+        .eq('is_active', true)
+        .single();
+
+      if (promoData) {
+        appliedPromo = promoData;
+        const originalGHS = plan.amount / 100;
+        
+        if (promoData.discount_type === 'percentage') {
+          discountAmountInGHS = (originalGHS * Number(promoData.discount_value)) / 100;
+        } else if (promoData.discount_type === 'fixed_amount') {
+          discountAmountInGHS = Math.min(originalGHS, Number(promoData.discount_value));
+        } else if (promoData.discount_type === 'free_bonus_messages' || promoData.discount_type === 'free_tier_days') {
+          discountAmountInGHS = originalGHS;
+        }
+
+        finalAmountInPesewas = Math.max(0, Math.round((originalGHS - discountAmountInGHS) * 100));
+      }
+    }
+  }
+
+  // If 100% discount or free grant code
+  if (finalAmountInPesewas === 0 && appliedPromo) {
+    if (supabase) {
+      if (appliedPromo.discount_type === 'free_bonus_messages') {
+        const today = new Date().toISOString().split('T')[0];
+        const { data: usageData } = await supabase
+          .from('usage')
+          .select('bonus_messages')
+          .eq('user_id', user.id)
+          .eq('date', today)
+          .single();
+
+        const curBonus = usageData?.bonus_messages || 0;
+        await supabase.from('usage').upsert({
+          user_id: user.id,
+          date: today,
+          bonus_messages: curBonus + Number(appliedPromo.discount_value || 50),
+        }, { onConflict: 'user_id,date' });
+      } else {
+        await supabase.from('profiles').update({ tier }).eq('id', user.id);
+      }
+
+      // Record redemption
+      await supabase.from('promotion_redemptions').insert({
+        promo_id: appliedPromo.id,
+        promo_code: appliedPromo.code,
+        user_id: user.id,
+        user_email: user.email,
+        plan: tier,
+        original_amount: plan.amount / 100,
+        discount_amount: plan.amount / 100,
+        final_amount: 0,
+      });
+
+      // Increment promo usage
+      await supabase.from('promotions').update({
+        current_uses: (appliedPromo.current_uses || 0) + 1,
+      }).eq('id', appliedPromo.id);
+    }
+
+    return res.status(200).json({
+      success: true,
+      freeGrant: true,
+      tier,
+      message: 'Promotion redeemed successfully! Your account has been upgraded.',
+    });
   }
 
   if (!PAYSTACK_SECRET_KEY) {
@@ -81,17 +162,22 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         email: user.email,
-        amount: plan.amount,
+        amount: finalAmountInPesewas,
         currency: 'GHS',
-        plan: plan.plan_code || undefined,
+        plan: finalAmountInPesewas === plan.amount ? (plan.plan_code || undefined) : undefined,
         callback_url: `${req.headers.origin || 'https://novel-weaver.app'}/payment-callback`,
         metadata: {
           user_id: user.id,
           tier: tier,
           type: tier === 'topup' ? 'topup' : 'subscription',
+          promo_code: appliedPromo ? appliedPromo.code : null,
+          promo_id: appliedPromo ? appliedPromo.id : null,
+          discount_amount_ghs: discountAmountInGHS,
+          original_amount_ghs: plan.amount / 100,
           custom_fields: [
             { display_name: 'Purchase Type', variable_name: 'type', value: plan.name },
             { display_name: 'User ID', variable_name: 'user_id', value: user.id },
+            { display_name: 'Promo Code', variable_name: 'promo_code', value: appliedPromo?.code || 'None' },
           ],
         },
       }),

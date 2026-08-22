@@ -61,41 +61,112 @@ export default async function handler(req, res) {
 
     // Extract tier from metadata
     const tier = data.data.metadata?.tier || 'writer';
+    const isTopup = data.data.metadata?.type === 'topup';
+    const promoCode = data.data.metadata?.promo_code || null;
+    const promoId = data.data.metadata?.promo_id || null;
+    const discountGHS = Number(data.data.metadata?.discount_amount_ghs || 0);
+    const amountPaidGHS = (data.data.amount || 0) / 100;
     const supabase = getSupabaseAdmin();
 
     if (supabase) {
-      // Update user profile tier
-      await supabase
-        .from('profiles')
-        .update({ tier })
-        .eq('id', user.id);
+      if (isTopup) {
+        // Add 50 bonus messages for top-up
+        const today = new Date().toISOString().split('T')[0];
+        const { data: usageData } = await supabase
+          .from('usage')
+          .select('bonus_messages')
+          .eq('user_id', user.id)
+          .eq('date', today)
+          .single();
 
-      // Upsert subscription record
-      const subscriptionData = {
-        user_id: user.id,
-        tier,
-        status: 'active',
-        paystack_customer_code: data.data.customer?.customer_code || null,
-        paystack_subscription_code: data.data.plan?.subscription_code || null,
-        plan_code: data.data.plan?.plan_code || null,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { data: existingSub } = await supabase
-        .from('subscriptions')
-        .select('id')
-        .eq('user_id', user.id)
-        .single();
-
-      if (existingSub) {
-        await supabase
-          .from('subscriptions')
-          .update(subscriptionData)
-          .eq('id', existingSub.id);
+        const currentBonus = usageData?.bonus_messages || 0;
+        await supabase.from('usage').upsert({
+          user_id: user.id,
+          date: today,
+          bonus_messages: currentBonus + 50,
+        }, { onConflict: 'user_id,date' });
       } else {
+        // Update user profile tier
         await supabase
+          .from('profiles')
+          .update({ tier })
+          .eq('id', user.id);
+
+        // Upsert subscription record
+        const subscriptionData = {
+          user_id: user.id,
+          tier,
+          status: 'active',
+          paystack_customer_code: data.data.customer?.customer_code || null,
+          paystack_subscription_code: data.data.plan?.subscription_code || null,
+          plan_code: data.data.plan?.plan_code || null,
+          updated_at: new Date().toISOString(),
+        };
+
+        const { data: existingSub } = await supabase
           .from('subscriptions')
-          .insert(subscriptionData);
+          .select('id')
+          .eq('user_id', user.id)
+          .single();
+
+        if (existingSub) {
+          await supabase
+            .from('subscriptions')
+            .update(subscriptionData)
+            .eq('id', existingSub.id);
+        } else {
+          await supabase
+            .from('subscriptions')
+            .insert(subscriptionData);
+        }
+      }
+
+      // Record transaction in ledger
+      try {
+        await supabase.from('transactions').insert({
+          user_id: user.id,
+          user_email: user.email,
+          reference: reference,
+          amount: amountPaidGHS,
+          currency: data.data.currency || 'GHS',
+          tier: tier,
+          type: isTopup ? 'topup' : 'subscription',
+          promo_code: promoCode,
+          status: 'success',
+        });
+      } catch (tErr) {
+        console.warn('Failed to insert transaction row:', tErr);
+      }
+
+      // If promo code was used, log redemption and increment counter
+      if (promoCode) {
+        try {
+          await supabase.from('promotion_redemptions').insert({
+            promo_id: promoId,
+            promo_code: promoCode,
+            user_id: user.id,
+            user_email: user.email,
+            plan: tier,
+            original_amount: amountPaidGHS + discountGHS,
+            discount_amount: discountGHS,
+            final_amount: amountPaidGHS,
+          });
+
+          if (promoId) {
+            const { data: pData } = await supabase
+              .from('promotions')
+              .select('current_uses')
+              .eq('id', promoId)
+              .single();
+            const curUses = pData?.current_uses || 0;
+            await supabase
+              .from('promotions')
+              .update({ current_uses: curUses + 1 })
+              .eq('id', promoId);
+          }
+        } catch (pErr) {
+          console.warn('Failed to record promotion redemption:', pErr);
+        }
       }
     }
 

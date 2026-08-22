@@ -11,6 +11,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@paystack/inline-js": "^2.24.0",
     "@supabase/supabase-js": "^2.49.9",
     "docx": "^9.5.1",
     "react": "^19.2.0",

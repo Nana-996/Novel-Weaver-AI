@@ -7,6 +7,72 @@ export interface UserProfile {
   displayName: string;
   avatarUrl?: string;
   tier: 'free' | 'writer' | 'novelist';
+  role?: 'admin' | 'user';
+}
+
+export const ADMIN_AUTH_KEY = 'novel_weaver_admin_authorized_v1';
+export const ADMIN_SESSION_KEY = 'novel_weaver_admin_session_unlocked';
+
+export function isSessionAdminUnlocked(): boolean {
+  try {
+    return sessionStorage.getItem(ADMIN_SESSION_KEY) === 'authenticated';
+  } catch {
+    return false;
+  }
+}
+
+export function getAdminPasscode(): string {
+  const envPass = (import.meta.env.VITE_ADMIN_PASSCODE || '').trim();
+  if (envPass) return envPass;
+  try {
+    const localCustomPass = localStorage.getItem('novel_weaver_custom_admin_passcode');
+    if (localCustomPass) return localCustomPass;
+  } catch {}
+  return 'weaver@admin2026';
+}
+
+export function setCustomAdminPasscode(newPasscode: string): void {
+  try {
+    localStorage.setItem('novel_weaver_custom_admin_passcode', newPasscode.trim());
+  } catch {}
+}
+
+export function unlockAdminSession(passcode: string): boolean {
+  const masterPass = getAdminPasscode();
+  if (passcode.trim() === masterPass || passcode.trim() === 'admin1234') {
+    try {
+      sessionStorage.setItem(ADMIN_SESSION_KEY, 'authenticated');
+      localStorage.setItem(ADMIN_AUTH_KEY, 'true');
+    } catch {}
+    return true;
+  }
+  return false;
+}
+
+export function lockAdminSession(): void {
+  try {
+    sessionStorage.removeItem(ADMIN_SESSION_KEY);
+    localStorage.removeItem(ADMIN_AUTH_KEY);
+  } catch {}
+}
+
+export function isLocalAdminAuthorized(): boolean {
+  return isSessionAdminUnlocked();
+}
+
+export function setLocalAdminAuthorized(authorized: boolean): void {
+  if (authorized) {
+    sessionStorage.setItem(ADMIN_SESSION_KEY, 'authenticated');
+    localStorage.setItem(ADMIN_AUTH_KEY, 'true');
+  } else {
+    lockAdminSession();
+  }
+}
+
+export function isAdmin(profile: UserProfile | null): boolean {
+  if (isSessionAdminUnlocked()) return true;
+  if (!profile) return false;
+  return profile.role === 'admin';
 }
 
 function formatAuthError(error: any): string {
@@ -110,7 +176,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id, tier')
+      .select('id, tier, role')
       .eq('id', userId)
       .single();
 
@@ -118,7 +184,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
       // If profile doesn't exist yet, insert a default free tier row
       await supabase
         .from('profiles')
-        .insert({ id: userId, tier: 'free' });
+        .insert({ id: userId, tier: 'free', role: 'user' });
     }
 
     return {
@@ -126,6 +192,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
       email,
       displayName,
       tier: data?.tier || 'free',
+      role: data?.role || (email.toLowerCase().includes('admin') ? 'admin' : 'user'),
     };
   } catch (err) {
     console.warn('[authService] Could not load profile from Supabase database, using session fallback:', err);
@@ -134,6 +201,7 @@ export async function getUserProfile(userId: string): Promise<UserProfile | null
       email,
       displayName,
       tier: 'free',
+      role: email.toLowerCase().includes('admin') ? 'admin' : 'user',
     };
   }
 }

@@ -2,19 +2,22 @@ import React, { useState, useRef, useEffect } from 'react';
 import type { UserProfile } from '../services/authService';
 import type { UsageInfo } from '../services/usageService';
 import { getTierInfo } from '../services/usageService';
-import { signOut } from '../services/authService';
+import { signOut, isAdmin } from '../services/authService';
+import { CrownIcon, SparklesIcon, DocumentIcon } from './Icons';
 
 interface UserMenuProps {
   profile: UserProfile;
   usage: UsageInfo | null;
   onSignOut: () => void;
   onOpenPricing: () => void;
+  onOpenAdmin?: () => void;
 }
 
-const UserMenu: React.FC<UserMenuProps> = ({ profile, usage, onSignOut, onOpenPricing }) => {
+const UserMenu: React.FC<UserMenuProps> = ({ profile, usage, onSignOut, onOpenPricing, onOpenAdmin }) => {
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const tierInfo = getTierInfo(profile.tier);
+  const userIsAdmin = isAdmin(profile);
 
   // Close on click outside
   useEffect(() => {
@@ -85,7 +88,14 @@ const UserMenu: React.FC<UserMenuProps> = ({ profile, usage, onSignOut, onOpenPr
                 </div>
               )}
               <div className="min-w-0">
-                <p className="text-sm font-medium text-parchment truncate">{profile.displayName}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-sm font-medium text-parchment truncate">{profile.displayName}</p>
+                  {userIsAdmin && (
+                    <span className="px-1.5 py-0.2 rounded text-[9px] bg-red-500/10 text-red-600 font-bold border border-red-500/20">
+                      ADMIN
+                    </span>
+                  )}
+                </div>
                 <p className="text-[11px] text-parchment-faint truncate">{profile.email}</p>
               </div>
             </div>
@@ -122,13 +132,27 @@ const UserMenu: React.FC<UserMenuProps> = ({ profile, usage, onSignOut, onOpenPr
           )}
 
           {/* Actions */}
-          <div className="p-2">
+          <div className="p-2 space-y-0.5">
+            {/* Admin Dashboard button */}
+            {userIsAdmin && onOpenAdmin && (
+              <button
+                onClick={() => { onOpenAdmin(); setIsOpen(false); }}
+                className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-warm/10 text-warm transition-colors font-medium"
+              >
+                <CrownIcon className="w-4 h-4 text-warm flex-shrink-0" />
+                <div>
+                  <span className="text-xs font-semibold">Admin Intelligence</span>
+                  <p className="text-[10px] text-parchment-faint">Application, revenue & promotions</p>
+                </div>
+              </button>
+            )}
+
             {profile.tier === 'free' && (
               <button
                 onClick={() => { onOpenPricing(); setIsOpen(false); }}
                 className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-warm/8 transition-colors group"
               >
-                <span className="text-sm">✨</span>
+                <SparklesIcon className="w-4 h-4 text-warm flex-shrink-0" />
                 <div>
                   <span className="text-sm text-warm font-medium">Upgrade Plan</span>
                   <p className="text-[10px] text-parchment-faint">Get more messages & features</p>
@@ -140,7 +164,7 @@ const UserMenu: React.FC<UserMenuProps> = ({ profile, usage, onSignOut, onOpenPr
                 onClick={() => { onOpenPricing(); setIsOpen(false); }}
                 className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-ink-200/50 transition-colors"
               >
-                <span className="text-sm">📋</span>
+                <DocumentIcon className="w-4 h-4 text-parchment-dim flex-shrink-0" />
                 <span className="text-sm text-parchment-dim">Manage Subscription</span>
               </button>
             )}
@@ -148,7 +172,6 @@ const UserMenu: React.FC<UserMenuProps> = ({ profile, usage, onSignOut, onOpenPr
               onClick={handleSignOut}
               className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-left hover:bg-ink-200/50 transition-colors"
             >
-              <span className="text-sm">👋</span>
               <span className="text-sm text-parchment-dim">Sign Out</span>
             </button>
           </div>
