@@ -292,7 +292,7 @@ class BackendChatImpl implements GeminiChat {
               const errMsg = typeof json.error === 'string' ? json.error : json.error.message || 'AI generation error';
               throw new Error(errMsg);
             }
-            const content = json.choices?.[0]?.delta?.content;
+            const content = json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.message?.content ?? json.choices?.[0]?.text;
             if (content) {
               yield { text: content };
             }
@@ -317,7 +317,7 @@ class BackendChatImpl implements GeminiChat {
                 const errMsg = typeof json.error === 'string' ? json.error : json.error.message || 'AI generation error';
                 throw new Error(errMsg);
               }
-              const content = json.choices?.[0]?.delta?.content;
+              const content = json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.message?.content ?? json.choices?.[0]?.text;
               if (content) {
                 yield { text: content };
               }

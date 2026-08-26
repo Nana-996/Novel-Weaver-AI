@@ -146,8 +146,7 @@ export default async function handler(req) {
     });
   }
 
-  const validModels = ['claude-opus-4-8', 'claude-3-7-sonnet', 'gpt-4o'];
-  const targetModel = (model && validModels.includes(model)) ? model : DEFAULT_MODEL;
+  const targetModel = DEFAULT_MODEL;
 
   try {
     const payload = {

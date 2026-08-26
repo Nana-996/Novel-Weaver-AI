@@ -19,17 +19,7 @@ const ModelSelectionModal: React.FC<ModelSelectionModalProps> = ({
     { 
       id: 'claude-opus-4-8', 
       name: 'Claude Opus 4.8 (AgentRouter)',
-      description: 'Most powerful model for nuanced creative writing and complex storytelling'
-    },
-    { 
-      id: 'claude-3-7-sonnet', 
-      name: 'Claude 3.7 Sonnet (AgentRouter)',
-      description: 'Fast, highly intelligent model ideal for rapid chapter drafting'
-    },
-    { 
-      id: 'gpt-4o', 
-      name: 'GPT-4o (AgentRouter)',
-      description: 'Versatile multimodal model for broad creative tasks'
+      description: 'Most powerful model for nuanced creative writing, deep prose texture, and complex storytelling'
     },
   ];
 

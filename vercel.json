@@ -5,19 +5,19 @@
   ],
   "functions": {
     "api/chat.js": {
-      "maxDuration": 10
+      "maxDuration": 60
     },
     "api/extract-notes.js": {
-      "maxDuration": 10
+      "maxDuration": 60
     },
     "api/paystack-webhook.js": {
-      "maxDuration": 10
+      "maxDuration": 30
     },
     "api/subscribe.js": {
-      "maxDuration": 10
+      "maxDuration": 30
     },
     "api/verify-payment.js": {
-      "maxDuration": 10
+      "maxDuration": 30
     }
   }
 }
