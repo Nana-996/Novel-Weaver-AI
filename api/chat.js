@@ -100,7 +100,9 @@ export default async function handler(req) {
   }
 
   if (!AGENTROUTER_API_KEY) {
-    return new Response(JSON.stringify({ error: 'AI service not configured.' }), { status: 500, headers: corsHeaders });
+    return new Response(JSON.stringify({
+      error: 'AI service not configured: AGENTROUTER_API_KEY is missing in server environment variables. Please add AGENTROUTER_API_KEY in your Vercel Project Settings.'
+    }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
   }
 
   const authHeader = req.headers.get('authorization');
@@ -109,16 +111,19 @@ export default async function handler(req) {
   if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
     const user = await verifyUser(authHeader);
     if (!user) {
-      return new Response(JSON.stringify({ error: 'Authentication required.' }), { status: 401, headers: corsHeaders });
+      return new Response(JSON.stringify({ error: 'Authentication required. Please sign in to chat.' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
     }
     userId = user.id;
 
     const usage = await checkUsage(userId);
     if (!usage.allowed) {
       return new Response(JSON.stringify({
-        error: `Daily message limit reached (${usage.used}/${usage.limit}). Upgrade your plan.`,
+        error: `Daily message limit reached (${usage.used}/${usage.limit}). Upgrade your plan to continue.`,
         usage
-      }), { status: 429, headers: corsHeaders });
+      }), { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
     }
   }
 
@@ -126,85 +131,57 @@ export default async function handler(req) {
   try {
     body = await req.json();
   } catch (e) {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400, headers: corsHeaders });
+    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
 
   const { messages, model, temperature, topP } = body;
 
   if (!messages || !Array.isArray(messages)) {
-    return new Response(JSON.stringify({ error: 'Invalid request: messages array required' }), { status: 400, headers: corsHeaders });
+    return new Response(JSON.stringify({ error: 'Invalid request: messages array required' }), {
+      status: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
 
   const validModels = ['claude-opus-4-8', 'claude-3-7-sonnet', 'gpt-4o'];
   const targetModel = (model && validModels.includes(model)) ? model : DEFAULT_MODEL;
 
   try {
-    const { readable, writable } = new TransformStream();
-    const writer = writable.getWriter();
+    const payload = {
+      model: targetModel,
+      messages,
+      stream: true,
+      ...(typeof temperature === 'number' ? { temperature } : {}),
+      ...(typeof topP === 'number' ? { top_p: topP } : {}),
+    };
 
-    // Start background fetch WITHOUT awaiting it before returning
-    (async () => {
-      let isDone = false;
-      const heartbeatInterval = setInterval(() => {
-        if (!isDone) {
-          // Send an SSE comment to keep the connection alive on mobile/Vercel
-          writer.write(new TextEncoder().encode(': ping\n\n')).catch(() => {});
-        }
-      }, 3000);
+    const aiResponse = await fetch(AGENTROUTER_BASE_URL, {
+      method: 'POST',
+      headers: getAgentRouterHeaders(),
+      body: JSON.stringify(payload),
+    });
 
+    if (!aiResponse.ok) {
+      let errorMsg = `AI service error (${aiResponse.status})`;
       try {
-        const payload = {
-          model: targetModel,
-          messages,
-          stream: true,
-        };
+        const errData = await aiResponse.json();
+        errorMsg = errData.error?.message || errData.message || errData.error || errorMsg;
+      } catch { /* ignore */ }
 
-        const aiResponse = await fetch(AGENTROUTER_BASE_URL, {
-          method: 'POST',
-          headers: getAgentRouterHeaders(),
-          body: JSON.stringify(payload),
-        });
+      return new Response(JSON.stringify({ error: errorMsg }), {
+        status: aiResponse.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
 
-        clearInterval(heartbeatInterval);
-        isDone = true;
+    if (userId) {
+      incrementUsage(userId).catch(err => console.error('Usage tracking error:', err));
+    }
 
-        if (!aiResponse.ok) {
-          let errorMsg = `AI service error (${aiResponse.status})`;
-          try {
-            const errData = await aiResponse.json();
-            errorMsg = errData.error?.message || errData.message || errData.error || errorMsg;
-          } catch { /* ignore */ }
-          
-          const encoder = new TextEncoder();
-          await writer.write(encoder.encode(`data: ${JSON.stringify({ error: errorMsg })}\n\n`));
-          return;
-        }
-
-        if (userId) {
-          incrementUsage(userId).catch(err => console.error('Usage tracking error:', err));
-        }
-
-        const reader = aiResponse.body.getReader();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          await writer.write(value);
-        }
-      } catch (error) {
-        console.error('Background fetch error:', error);
-        const encoder = new TextEncoder();
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ error: error.message })}\n\n`));
-      } finally {
-        clearInterval(heartbeatInterval);
-        isDone = true;
-        try {
-          await writer.close();
-        } catch { /* ignore if already closed */ }
-      }
-    })();
-
-    // Return IMMEDIATELY to bypass 10s timeout limits!
-    return new Response(readable, {
+    return new Response(aiResponse.body, {
       headers: {
         ...corsHeaders,
         'Content-Type': 'text/event-stream',
@@ -213,7 +190,10 @@ export default async function handler(req) {
       }
     });
   } catch (error) {
-    console.error('Chat API start error:', error);
-    return new Response(JSON.stringify({ error: `Failed to start stream: ${error.message}` }), { status: 500, headers: corsHeaders });
+    console.error('Chat API error:', error);
+    return new Response(JSON.stringify({ error: `AI request failed: ${error.message}` }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
   }
 }
