@@ -246,7 +246,9 @@ class BackendChatImpl implements GeminiChat {
         errorMsg = errData.error || errData.message || errorMsg;
       } catch { /* ignore parse error */ }
 
-      // Special handling for rate limit
+      if (response.status === 401) {
+        throw new Error('Authentication required. Please sign in or create an account to start writing.');
+      }
       if (response.status === 429) {
         throw new Error(errorMsg);
       }
@@ -279,32 +281,52 @@ class BackendChatImpl implements GeminiChat {
 
         for (const line of lines) {
           const trimmed = line.trim();
-          if (!trimmed || trimmed === 'data: [DONE]') continue;
+          if (!trimmed || trimmed === 'data: [DONE]' || trimmed === ': ping') continue;
           if (!trimmed.startsWith('data: ')) continue;
 
           try {
-            const json = JSON.parse(trimmed.slice(6));
+            const dataStr = trimmed.slice(6).trim();
+            if (!dataStr || dataStr === 'null' || dataStr === '[DONE]') continue;
+            const json = JSON.parse(dataStr);
+            if (json.error) {
+              const errMsg = typeof json.error === 'string' ? json.error : json.error.message || 'AI generation error';
+              throw new Error(errMsg);
+            }
             const content = json.choices?.[0]?.delta?.content;
             if (content) {
               yield { text: content };
             }
-          } catch {
+          } catch (e: any) {
+            if (e.message && !e.message.includes('JSON')) {
+              throw e;
+            }
             // Skip malformed JSON chunks
           }
         }
       }
 
       // Process any remaining buffer
-      if (buffer.trim() && buffer.trim() !== 'data: [DONE]') {
+      if (buffer.trim() && buffer.trim() !== 'data: [DONE]' && buffer.trim() !== ': ping') {
         const trimmed = buffer.trim();
         if (trimmed.startsWith('data: ')) {
           try {
-            const json = JSON.parse(trimmed.slice(6));
-            const content = json.choices?.[0]?.delta?.content;
-            if (content) {
-              yield { text: content };
+            const dataStr = trimmed.slice(6).trim();
+            if (dataStr && dataStr !== 'null' && dataStr !== '[DONE]') {
+              const json = JSON.parse(dataStr);
+              if (json.error) {
+                const errMsg = typeof json.error === 'string' ? json.error : json.error.message || 'AI generation error';
+                throw new Error(errMsg);
+              }
+              const content = json.choices?.[0]?.delta?.content;
+              if (content) {
+                yield { text: content };
+              }
             }
-          } catch { /* ignore */ }
+          } catch (e: any) {
+            if (e.message && !e.message.includes('JSON')) {
+              throw e;
+            }
+          }
         }
       }
     } finally {

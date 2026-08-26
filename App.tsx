@@ -776,7 +776,23 @@ const App: React.FC = () => {
   }, [setProjects]);
 
   const handleSendMessage = async (text: string) => {
-    if (!activeProject || !chatRef.current) return;
+    if (!activeProject) return;
+
+    // If Supabase is configured but user is not logged in, prompt sign-in
+    if (isSupabaseConfigured() && !userProfile) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    if (!chatRef.current) {
+      chatRef.current = createChat({
+        history: activeProject.messages.slice(-20).map(m => ({
+          role: m.role,
+          parts: [{ text: m.text }]
+        })),
+        settings: settings.ai
+      });
+    }
 
     // Check usage before sending
     if (usage?.isAtLimit) {
@@ -829,6 +845,12 @@ const App: React.FC = () => {
         if (updatedProject && activeProjectId) {
           triggerStoryExtraction(updatedProject.messages, activeProjectId, updatedProject.notes);
         }
+      } else if (!abortRef.current?.signal.aborted) {
+        const errorMessage: Message = { id: `msg-${Date.now() + 1}`, role: 'model', text: 'The AI did not return a response. Please verify your connection or API key settings.' };
+        currentProjects = currentProjects.map(p =>
+          p.id === activeProjectId ? { ...p, messages: [...p.messages, errorMessage] } : p
+        );
+        setProjects(currentProjects);
       }
 
       // Refresh usage after message
