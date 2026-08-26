@@ -84,6 +84,17 @@ function formatAuthError(error: any): string {
   return msg;
 }
 
+function getAuthRedirectUrl(): string | undefined {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin;
+  }
+  const envUrl = (import.meta.env.VITE_APP_URL || import.meta.env.VITE_SITE_URL || '').trim();
+  if (envUrl) {
+    return envUrl.replace(/\/+$/, '');
+  }
+  return undefined;
+}
+
 // Sign up with email and password
 export async function signUp(email: string, password: string, displayName: string): Promise<{ user: User | null; error: string | null }> {
   if (!supabase) {
@@ -91,11 +102,13 @@ export async function signUp(email: string, password: string, displayName: strin
   }
 
   try {
+    const redirectTo = getAuthRedirectUrl();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         data: { full_name: displayName },
+        emailRedirectTo: redirectTo,
       },
     });
 
@@ -132,11 +145,31 @@ export async function signInWithGoogle(): Promise<{ error: string | null }> {
   }
 
   try {
+    const redirectTo = getAuthRedirectUrl();
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: window.location.origin,
+        redirectTo,
       },
+    });
+
+    if (error) return { error: formatAuthError(error) };
+    return { error: null };
+  } catch (err: any) {
+    return { error: formatAuthError(err) };
+  }
+}
+
+// Reset password email
+export async function resetPassword(email: string): Promise<{ error: string | null }> {
+  if (!supabase) {
+    return { error: 'Authentication is not configured. Please add your Supabase credentials to .env.local.' };
+  }
+
+  try {
+    const redirectTo = getAuthRedirectUrl();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
     });
 
     if (error) return { error: formatAuthError(error) };

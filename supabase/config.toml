@@ -1,0 +1,50 @@
+# A string used to distinguish different Supabase projects on the same host. Defaults to the
+# working directory name when running `supabase init`.
+project_id = "ujcylnoztkvbloxdihyd"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[db.pooler]
+enabled = false
+port = 54329
+pool_mode = "transaction"
+default_pool_size = 20
+max_client_conn = 100
+
+[auth]
+enabled = true
+# The base URL of your website. Used as an allow-list for redirects and for constructing URLs used
+# in emails.
+site_url = "https://novel-weaver-ai.vercel.app"
+# A list of *exact* URLs that auth providers are permitted to redirect to post authentication.
+additional_redirect_urls = [
+  "https://novel-weaver-ai.vercel.app",
+  "https://novel-weaver-ai.vercel.app/**",
+  "https://*.vercel.app/**",
+  "http://localhost:5173",
+  "http://localhost:5173/**",
+  "http://localhost:3000",
+  "http://localhost:3000/**",
+  "http://localhost:3006",
+  "http://localhost:3006/**"
+]
+# How long tokens are valid for, in seconds. Defaults to 3600 (1 hour), maximum 604,800 (1 week).
+jwt_expiry = 3600
+# If disabled, signups are not allowed.
+enable_signup = true
+
+[auth.email]
+# If enabled, users need to confirm their email address before signing in.
+enable_signup = true
+# If enabled, a confirmation email will be sent upon signup.
+enable_confirmations = true

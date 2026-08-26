@@ -8,7 +8,8 @@
     "dev:vercel": "vercel dev",
     "dev:local": "node scripts/local-api-server.mjs",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "auth:config": "node scripts/configure-auth.mjs"
   },
   "dependencies": {
     "@paystack/inline-js": "^2.24.0",
