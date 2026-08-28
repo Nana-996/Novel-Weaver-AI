@@ -54,7 +54,6 @@ const createEmptyNotes = (): StoryNotes => ({
   plot: '',
   characters: '',
   outline: '',
-  worldbuilding: '',
 });
 
 const VALID_MODELS = ['claude-opus-5', 'gpt-5.6-sol', 'deepseek-v4-flash', 'glm-5.3'];
