@@ -234,11 +234,21 @@ export default async function handler(req, res) {
         body: JSON.stringify(payload),
       });
 
-      if (!aiResponse.ok) {
+      const contentType = aiResponse.headers.get('content-type') || '';
+      if (!aiResponse.ok || contentType.includes('text/html')) {
         let errorMsg = `AI service error (${aiResponse.status})`;
         try {
-          const errData = await aiResponse.json();
-          errorMsg = (typeof errData.error === 'string' ? errData.error : errData.error?.message) || errData.message || errorMsg;
+          const text = await aiResponse.text();
+          if (text.includes('aliyun_waf') || text.includes('captcha') || text.includes('<!doctype') || text.includes('<html')) {
+            errorMsg = 'Security challenge triggered by gateway. Retrying fallback model...';
+          } else {
+            try {
+              const errData = JSON.parse(text);
+              errorMsg = (typeof errData.error === 'string' ? errData.error : errData.error?.message) || errData.message || errorMsg;
+            } catch {
+              if (text.length < 300) errorMsg = text;
+            }
+          }
         } catch { /* ignore */ }
 
         console.warn(`Model ${currentModel} failed (${aiResponse.status}): ${errorMsg}. Trying fallback...`);

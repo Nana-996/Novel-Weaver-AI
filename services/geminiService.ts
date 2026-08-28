@@ -343,6 +343,9 @@ class BackendChatImpl implements GeminiChat {
         if (e.message && !e.message.includes('JSON') && !e.message.includes('SyntaxError')) {
           throw e;
         }
+        if (dataStr.includes('aliyun_waf') || dataStr.includes('<!doctype') || dataStr.includes('<html') || dataStr.includes('<script')) {
+          throw new Error('AI gateway requested verification challenge. Please try sending your message again.');
+        }
         // If data is raw text not wrapped in JSON
         if (!dataStr.startsWith('{') && !dataStr.startsWith('[') && dataStr.length > 0) {
           return dataStr;

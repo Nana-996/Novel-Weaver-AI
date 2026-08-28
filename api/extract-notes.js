@@ -203,11 +203,21 @@ OUTLINE: ${currentNotes?.outline || '(empty)'}
         }),
       });
 
-      if (!response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      if (!response.ok || contentType.includes('text/html')) {
         let errText = '';
         try {
-          const errData = await response.json();
-          errText = (typeof errData.error === 'string' ? errData.error : errData.error?.message) || errData.message || '';
+          const text = await response.text();
+          if (text.includes('aliyun_waf') || text.includes('captcha') || text.includes('<!doctype') || text.includes('<html')) {
+            errText = 'Security challenge triggered by gateway. Retrying fallback model...';
+          } else {
+            try {
+              const errData = JSON.parse(text);
+              errText = (typeof errData.error === 'string' ? errData.error : errData.error?.message) || errData.message || '';
+            } catch {
+              if (text.length < 300) errText = text;
+            }
+          }
         } catch { /* ignore */ }
         console.warn(`Extract notes model ${currentModel} failed (${response.status}): ${errText}. Trying fallback...`);
         lastErrorMsg = errText || `AI service error (${response.status})`;
