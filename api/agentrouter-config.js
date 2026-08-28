@@ -1,4 +1,9 @@
-export const AGENTROUTER_API_KEY = process.env.AGENTROUTER_API_KEY || process.env.OPENROUTER_API_KEY || '';
+export const AGENTROUTER_API_KEY =
+  process.env.AGENTROUTER_API_KEY ||
+  process.env.OPENROUTER_API_KEY ||
+  process.env.VITE_AGENTROUTER_API_KEY ||
+  process.env.VITE_OPENROUTER_API_KEY ||
+  '';
 export const AGENTROUTER_BASE_URL = 'https://agentrouter.org/v1/chat/completions';
 export const DEFAULT_MODEL = 'claude-opus-5';
 export const SUPPORTED_MODELS = [
@@ -17,4 +22,5 @@ export function getAgentRouterHeaders() {
     'anthropic-version': '2023-06-01',
   };
 }
+
 

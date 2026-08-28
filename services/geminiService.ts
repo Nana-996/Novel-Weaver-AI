@@ -260,8 +260,21 @@ class BackendChatImpl implements GeminiChat {
     if (!response.ok) {
       let errorMsg = `AI service error (${response.status})`;
       try {
-        const errData = await response.json();
-        errorMsg = errData.error || errData.message || errorMsg;
+        const text = await response.text();
+        try {
+          const errData = JSON.parse(text);
+          if (typeof errData.error === 'string') {
+            errorMsg = errData.error;
+          } else if (errData.error?.message) {
+            errorMsg = errData.error.message;
+          } else if (errData.message) {
+            errorMsg = errData.message;
+          }
+        } catch {
+          if (text && text.length < 300 && !text.includes('<!DOCTYPE')) {
+            errorMsg = text;
+          }
+        }
       } catch { /* ignore parse error */ }
 
       if (response.status === 401) {

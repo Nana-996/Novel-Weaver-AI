@@ -3,7 +3,7 @@ export const maxDuration = 60;
 import { createClient } from '@supabase/supabase-js';
 import { AGENTROUTER_API_KEY, AGENTROUTER_BASE_URL, DEFAULT_MODEL, SUPPORTED_MODELS, getAgentRouterHeaders } from './agentrouter-config.js';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_SERVICE_ROLE_KEY || '';
 
 // Tier limits
 const TIER_LIMITS = {
@@ -21,7 +21,7 @@ async function verifyUser(authHeader) {
   const supabase = getSupabaseAdmin();
   if (!supabase || !authHeader) return null;
 
-  const token = authHeader.replace('Bearer ', '');
+  const token = authHeader.replace(/^Bearer\s+/i, '');
   const { data: { user }, error } = await supabase.auth.getUser(token);
   if (error || !user) return null;
   return user;
@@ -88,62 +88,124 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
-export default async function handler(req) {
-  if (req.method === 'OPTIONS') {
+async function parseRequest(req) {
+  const method = req.method || 'GET';
+  
+  let authHeader = '';
+  if (req.headers) {
+    if (typeof req.headers.get === 'function') {
+      authHeader = req.headers.get('authorization') || '';
+    } else {
+      authHeader = req.headers['authorization'] || req.headers['Authorization'] || '';
+    }
+  }
+
+  let body = null;
+  if (req.body) {
+    if (typeof req.body === 'object' && !Buffer.isBuffer(req.body) && !(req.body instanceof Uint8Array)) {
+      body = req.body;
+    } else if (typeof req.body === 'string') {
+      try { body = JSON.parse(req.body); } catch {}
+    } else if (Buffer.isBuffer(req.body)) {
+      try { body = JSON.parse(req.body.toString('utf-8')); } catch {}
+    }
+  }
+
+  if (!body && typeof req.json === 'function') {
+    try { body = await req.json(); } catch {}
+  }
+
+  if (!body && typeof req.text === 'function') {
+    try {
+      const text = await req.text();
+      body = JSON.parse(text);
+    } catch {}
+  }
+
+  if (!body && req.on && typeof req.on === 'function') {
+    body = await new Promise((resolve) => {
+      let data = '';
+      req.on('data', chunk => { data += chunk; });
+      req.on('end', () => {
+        try { resolve(JSON.parse(data)); } catch { resolve(null); }
+      });
+      req.on('error', () => resolve(null));
+    });
+  }
+
+  return { method, authHeader, body };
+}
+
+export default async function handler(req, res) {
+  const isNode = Boolean(res && (typeof res.writeHead === 'function' || typeof res.status === 'function'));
+
+  const sendJsonResponse = (status, data) => {
+    if (isNode) {
+      if (typeof res.status === 'function' && typeof res.json === 'function') {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        return res.status(status).json(data);
+      }
+      res.writeHead(status, { ...corsHeaders, 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(data));
+      return;
+    }
+    return new Response(JSON.stringify(data), {
+      status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+    });
+  };
+
+  const { method, authHeader, body } = await parseRequest(req);
+
+  if (method === 'OPTIONS') {
+    if (isNode) {
+      if (typeof res.status === 'function') {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        return res.status(200).end();
+      }
+      res.writeHead(200, corsHeaders);
+      res.end();
+      return;
+    }
     return new Response(null, { status: 200, headers: corsHeaders });
   }
 
-  if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405, headers: corsHeaders });
+  if (method !== 'POST') {
+    return sendJsonResponse(405, { error: 'Method not allowed' });
   }
 
   if (!AGENTROUTER_API_KEY) {
-    return new Response(JSON.stringify({
+    return sendJsonResponse(500, {
       error: 'AI service not configured: AGENTROUTER_API_KEY is missing in server environment variables. Please add AGENTROUTER_API_KEY in your Vercel Project Settings.'
-    }), { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+    });
   }
 
-  const authHeader = req.headers.get('authorization');
   let userId = null;
-
   if (SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY) {
     const user = await verifyUser(authHeader);
     if (!user) {
-      return new Response(JSON.stringify({ error: 'Authentication required. Please sign in to chat.' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-      });
+      return sendJsonResponse(401, { error: 'Authentication required. Please sign in to chat.' });
     }
     userId = user.id;
 
     const usage = await checkUsage(userId);
     if (!usage.allowed) {
-      return new Response(JSON.stringify({
+      return sendJsonResponse(429, {
         error: `Daily message limit reached (${usage.used}/${usage.limit}). Upgrade your plan to continue.`,
         usage
-      }), { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+      });
     }
   }
 
-  let body;
-  try {
-    body = await req.json();
-  } catch (e) {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+  if (!body || !body.messages || !Array.isArray(body.messages)) {
+    return sendJsonResponse(400, { error: 'Invalid request: messages array required' });
   }
 
   const { messages, model, temperature, topP } = body;
-
-  if (!messages || !Array.isArray(messages)) {
-    return new Response(JSON.stringify({ error: 'Invalid request: messages array required' }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
-  }
-
   const requestedModel = (model && SUPPORTED_MODELS.includes(model)) ? model : DEFAULT_MODEL;
   
   // Build candidate order: user requested model first, then remaining supported models
@@ -175,7 +237,7 @@ export default async function handler(req) {
         let errorMsg = `AI service error (${aiResponse.status})`;
         try {
           const errData = await aiResponse.json();
-          errorMsg = errData.error?.message || errData.message || errData.error || errorMsg;
+          errorMsg = (typeof errData.error === 'string' ? errData.error : errData.error?.message) || errData.message || errorMsg;
         } catch { /* ignore */ }
 
         console.warn(`Model ${currentModel} failed (${aiResponse.status}): ${errorMsg}. Trying fallback...`);
@@ -186,6 +248,26 @@ export default async function handler(req) {
 
       if (userId) {
         incrementUsage(userId).catch(err => console.error('Usage tracking error:', err));
+      }
+
+      if (isNode) {
+        res.writeHead(200, {
+          ...corsHeaders,
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        });
+
+        if (aiResponse.body) {
+          const reader = aiResponse.body.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            res.write(Buffer.from(value));
+          }
+        }
+        res.end();
+        return;
       }
 
       return new Response(aiResponse.body, {
@@ -202,10 +284,7 @@ export default async function handler(req) {
     }
   }
 
-  // All candidates failed
-  return new Response(JSON.stringify({ error: lastErrorMsg }), {
-    status: lastStatus,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-  });
+  return sendJsonResponse(lastStatus, { error: lastErrorMsg });
 }
+
 
