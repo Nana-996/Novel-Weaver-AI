@@ -207,11 +207,12 @@ export default async function handler(req, res) {
 
   const { messages, model, temperature, topP } = body;
   const requestedModel = (model && SUPPORTED_MODELS.includes(model)) ? model : DEFAULT_MODEL;
+  const primaryModel = requestedModel === 'claude-opus-4-8' ? DEFAULT_MODEL : requestedModel;
   
-  // Build candidate order: user requested model first, then remaining supported models
+  // Build candidate order: operational primary model first, then remaining supported models
   const candidateModels = [
-    requestedModel,
-    ...SUPPORTED_MODELS.filter(m => m !== requestedModel)
+    primaryModel,
+    ...SUPPORTED_MODELS.filter(m => m !== primaryModel && m !== 'claude-opus-4-8')
   ];
 
   let lastErrorMsg = 'AI generation failed';
@@ -253,10 +254,15 @@ export default async function handler(req, res) {
       if (isNode) {
         res.writeHead(200, {
           ...corsHeaders,
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
           'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
         });
+
+        if (typeof res.flushHeaders === 'function') {
+          res.flushHeaders();
+        }
 
         if (aiResponse.body) {
           const reader = aiResponse.body.getReader();
@@ -264,6 +270,7 @@ export default async function handler(req, res) {
             const { done, value } = await reader.read();
             if (done) break;
             res.write(Buffer.from(value));
+            if (typeof res.flush === 'function') res.flush();
           }
         }
         res.end();
@@ -273,9 +280,10 @@ export default async function handler(req, res) {
       return new Response(aiResponse.body, {
         headers: {
           ...corsHeaders,
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache',
+          'Content-Type': 'text/event-stream; charset=utf-8',
+          'Cache-Control': 'no-cache, no-transform',
           'Connection': 'keep-alive',
+          'X-Accel-Buffering': 'no',
         }
       });
     } catch (error) {

@@ -316,7 +316,7 @@ class BackendChatImpl implements GeminiChat {
 
     const parseLineAndYield = (line: string): string | null => {
       const trimmed = line.trim();
-      if (!trimmed || trimmed === 'data: [DONE]' || trimmed === '[DONE]' || trimmed === ': ping') return null;
+      if (!trimmed || trimmed === 'data: [DONE]' || trimmed === '[DONE]' || trimmed === ': ping' || trimmed === ': keep-alive') return null;
 
       let dataStr = trimmed;
       if (trimmed.startsWith('data:')) {
@@ -328,13 +328,24 @@ class BackendChatImpl implements GeminiChat {
       try {
         const json = JSON.parse(dataStr);
         if (json.error) {
-          const errMsg = typeof json.error === 'string' ? json.error : json.error.message || 'AI generation error';
+          const errMsg = typeof json.error === 'string' ? json.error : json.error.message || json.error.toString() || 'AI generation error';
           throw new Error(errMsg);
         }
-        return json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.message?.content ?? json.choices?.[0]?.text ?? null;
+        return (
+          json.choices?.[0]?.delta?.content ??
+          json.choices?.[0]?.message?.content ??
+          json.choices?.[0]?.text ??
+          json.text ??
+          json.content ??
+          null
+        );
       } catch (e: any) {
-        if (e.message && !e.message.includes('JSON')) {
+        if (e.message && !e.message.includes('JSON') && !e.message.includes('SyntaxError')) {
           throw e;
+        }
+        // If data is raw text not wrapped in JSON
+        if (!dataStr.startsWith('{') && !dataStr.startsWith('[') && dataStr.length > 0) {
+          return dataStr;
         }
         return null;
       }

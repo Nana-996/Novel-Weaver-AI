@@ -57,7 +57,7 @@ const createEmptyNotes = (): StoryNotes => ({
   worldbuilding: '',
 });
 
-const VALID_MODELS = ['claude-opus-5', 'gpt-5.6-sol', 'deepseek-v4-flash', 'glm-5.3', 'claude-opus-4-8'];
+const VALID_MODELS = ['claude-opus-5', 'gpt-5.6-sol', 'deepseek-v4-flash', 'glm-5.3'];
 
 const getInitialSettings = (): Settings => {
   try {
@@ -65,15 +65,19 @@ const getInitialSettings = (): Settings => {
     if (savedSettings) {
       const parsed = JSON.parse(savedSettings);
       if (parsed.ai) {
-        if (!parsed.ai.model || !VALID_MODELS.includes(parsed.ai.model)) {
+        if (!parsed.ai.model || !VALID_MODELS.includes(parsed.ai.model) || parsed.ai.model === 'claude-opus-4-8') {
           parsed.ai.model = 'claude-opus-5';
         }
         delete parsed.ai.provider;
       }
+      const model = (parsed.ai?.model && VALID_MODELS.includes(parsed.ai.model) && parsed.ai.model !== 'claude-opus-4-8')
+        ? parsed.ai.model
+        : 'claude-opus-5';
+
       const finalSettings = {
         ...DEFAULT_SETTINGS,
         ...parsed,
-        ai: { ...DEFAULT_SETTINGS.ai, ...parsed.ai, model: VALID_MODELS.includes(parsed.ai?.model) ? parsed.ai.model : 'claude-opus-5' },
+        ai: { ...DEFAULT_SETTINGS.ai, ...parsed.ai, model },
         export: { ...DEFAULT_SETTINGS.export, ...parsed.export },
       };
       localStorage.setItem('novel-weaver-settings', JSON.stringify(finalSettings));
