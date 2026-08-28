@@ -1,7 +1,7 @@
 export const maxDuration = 60;
 
 import { createClient } from '@supabase/supabase-js';
-import { AGENTROUTER_API_KEY, AGENTROUTER_BASE_URL, DEFAULT_MODEL, getAgentRouterHeaders } from './agentrouter-config.js';
+import { AGENTROUTER_API_KEY, AGENTROUTER_BASE_URL, DEFAULT_MODEL, SUPPORTED_MODELS, getAgentRouterHeaders } from './agentrouter-config.js';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
@@ -144,53 +144,68 @@ export default async function handler(req) {
     });
   }
 
-  const targetModel = DEFAULT_MODEL;
+  const requestedModel = (model && SUPPORTED_MODELS.includes(model)) ? model : DEFAULT_MODEL;
+  
+  // Build candidate order: user requested model first, then remaining supported models
+  const candidateModels = [
+    requestedModel,
+    ...SUPPORTED_MODELS.filter(m => m !== requestedModel)
+  ];
 
-  try {
-    const payload = {
-      model: targetModel,
-      messages,
-      stream: true,
-      ...(typeof temperature === 'number' ? { temperature } : {}),
-      ...(typeof topP === 'number' ? { top_p: topP } : {}),
-    };
+  let lastErrorMsg = 'AI generation failed';
+  let lastStatus = 500;
 
-    const aiResponse = await fetch(AGENTROUTER_BASE_URL, {
-      method: 'POST',
-      headers: getAgentRouterHeaders(),
-      body: JSON.stringify(payload),
-    });
+  for (const currentModel of candidateModels) {
+    try {
+      const payload = {
+        model: currentModel,
+        messages,
+        stream: true,
+        ...(typeof temperature === 'number' ? { temperature } : {}),
+        ...(typeof topP === 'number' ? { top_p: topP } : {}),
+      };
 
-    if (!aiResponse.ok) {
-      let errorMsg = `AI service error (${aiResponse.status})`;
-      try {
-        const errData = await aiResponse.json();
-        errorMsg = errData.error?.message || errData.message || errData.error || errorMsg;
-      } catch { /* ignore */ }
-
-      return new Response(JSON.stringify({ error: errorMsg }), {
-        status: aiResponse.status,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      const aiResponse = await fetch(AGENTROUTER_BASE_URL, {
+        method: 'POST',
+        headers: getAgentRouterHeaders(),
+        body: JSON.stringify(payload),
       });
-    }
 
-    if (userId) {
-      incrementUsage(userId).catch(err => console.error('Usage tracking error:', err));
-    }
+      if (!aiResponse.ok) {
+        let errorMsg = `AI service error (${aiResponse.status})`;
+        try {
+          const errData = await aiResponse.json();
+          errorMsg = errData.error?.message || errData.message || errData.error || errorMsg;
+        } catch { /* ignore */ }
 
-    return new Response(aiResponse.body, {
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
+        console.warn(`Model ${currentModel} failed (${aiResponse.status}): ${errorMsg}. Trying fallback...`);
+        lastErrorMsg = errorMsg;
+        lastStatus = aiResponse.status;
+        continue;
       }
-    });
-  } catch (error) {
-    console.error('Chat API error:', error);
-    return new Response(JSON.stringify({ error: `AI request failed: ${error.message}` }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
-    });
+
+      if (userId) {
+        incrementUsage(userId).catch(err => console.error('Usage tracking error:', err));
+      }
+
+      return new Response(aiResponse.body, {
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        }
+      });
+    } catch (error) {
+      console.warn(`Error with model ${currentModel}: ${error.message}. Trying fallback...`);
+      lastErrorMsg = `AI request failed: ${error.message}`;
+    }
   }
+
+  // All candidates failed
+  return new Response(JSON.stringify({ error: lastErrorMsg }), {
+    status: lastStatus,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+  });
 }
+

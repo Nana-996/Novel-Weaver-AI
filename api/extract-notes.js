@@ -1,7 +1,7 @@
 export const maxDuration = 60;
 
 import { createClient } from '@supabase/supabase-js';
-import { AGENTROUTER_API_KEY, AGENTROUTER_BASE_URL, DEFAULT_MODEL, getAgentRouterHeaders } from './agentrouter-config.js';
+import { AGENTROUTER_API_KEY, AGENTROUTER_BASE_URL, DEFAULT_MODEL, SUPPORTED_MODELS, getAgentRouterHeaders } from './agentrouter-config.js';
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
@@ -102,47 +102,70 @@ OUTLINE: ${currentNotes?.outline || '(empty)'}
 
   const userPrompt = `${currentMemory}\n\nRECENT CONVERSATION:\n${conversationText}\n\nAnalyze the conversation above and return the updated Story Memory as JSON. Remember: MERGE new information with existing — never delete what's already there.`;
 
-  try {
-    const response = await fetch(AGENTROUTER_BASE_URL, {
-      method: 'POST',
-      headers: getAgentRouterHeaders(),
-      body: JSON.stringify({
-        model: DEFAULT_MODEL,
-        messages: [
-          { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt },
-        ],
-        stream: false,
-      }),
-    });
+  const candidateModels = [
+    DEFAULT_MODEL,
+    ...SUPPORTED_MODELS.filter(m => m !== DEFAULT_MODEL)
+  ];
 
-    if (!response.ok) {
-      return new Response(JSON.stringify({ error: `AI service error (${response.status})` }), { status: response.status, headers: corsHeaders });
+  let lastErrorMsg = 'Extraction failed';
+  let lastStatus = 500;
+
+  for (const currentModel of candidateModels) {
+    try {
+      const response = await fetch(AGENTROUTER_BASE_URL, {
+        method: 'POST',
+        headers: getAgentRouterHeaders(),
+        body: JSON.stringify({
+          model: currentModel,
+          messages: [
+            { role: 'system', content: EXTRACTION_SYSTEM_PROMPT },
+            { role: 'user', content: userPrompt },
+          ],
+          stream: false,
+        }),
+      });
+
+      if (!response.ok) {
+        let errText = '';
+        try {
+          const errData = await response.json();
+          errText = errData.error?.message || errData.message || '';
+        } catch { /* ignore */ }
+        console.warn(`Extract notes model ${currentModel} failed (${response.status}): ${errText}. Trying fallback...`);
+        lastErrorMsg = errText || `AI service error (${response.status})`;
+        lastStatus = response.status;
+        continue;
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+
+      if (!content) {
+        lastErrorMsg = 'No content in AI response';
+        continue;
+      }
+
+      // Parse JSON — handle markdown code fences
+      let jsonStr = content.trim();
+      if (jsonStr.startsWith('```')) {
+        jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
+      }
+
+      const parsed = JSON.parse(jsonStr);
+
+      if (typeof parsed.idea !== 'string' || typeof parsed.characters !== 'string' ||
+          typeof parsed.plot !== 'string' || typeof parsed.outline !== 'string') {
+        lastErrorMsg = 'Invalid response structure from AI';
+        continue;
+      }
+
+      return new Response(JSON.stringify(parsed), { status: 200, headers: corsHeaders });
+    } catch (error) {
+      console.warn(`Extract notes error with ${currentModel}:`, error);
+      lastErrorMsg = `Extraction failed: ${error.message}`;
     }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-
-    if (!content) {
-      return new Response(JSON.stringify({ error: 'No content in AI response' }), { status: 500, headers: corsHeaders });
-    }
-
-    // Parse JSON — handle markdown code fences
-    let jsonStr = content.trim();
-    if (jsonStr.startsWith('```')) {
-      jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '');
-    }
-
-    const parsed = JSON.parse(jsonStr);
-
-    if (typeof parsed.idea !== 'string' || typeof parsed.characters !== 'string' ||
-        typeof parsed.plot !== 'string' || typeof parsed.outline !== 'string') {
-      return new Response(JSON.stringify({ error: 'Invalid response structure from AI' }), { status: 500, headers: corsHeaders });
-    }
-
-    return new Response(JSON.stringify(parsed), { status: 200, headers: corsHeaders });
-  } catch (error) {
-    console.error('Extract notes error:', error);
-    return new Response(JSON.stringify({ error: `Extraction failed: ${error.message}` }), { status: 500, headers: corsHeaders });
   }
+
+  return new Response(JSON.stringify({ error: lastErrorMsg }), { status: lastStatus, headers: corsHeaders });
 }
+

@@ -9,7 +9,7 @@ import { incrementLocalUsage } from './usageService';
 
 const CHAT_API_URL = '/api/chat';
 const EXTRACT_API_URL = '/api/extract-notes';
-const DEFAULT_MODEL = 'claude-opus-4-8';
+const DEFAULT_MODEL = 'claude-opus-5';
 
 const getSystemInstruction = (settings: Settings['ai']) => `You are Novel Weaver, an elite AI novelist and co-author. Your sole purpose is to produce prose so organically human that no AI detection system, critical reader, or fellow writer can tell it was machine-generated. Every sentence must breathe with the chaotic, textured, and imperfect rhythm of real human creativity.
 
@@ -168,9 +168,27 @@ export const webLLMEngine = new StubEngine();
 // Keep backward compatibility exports
 export const BROWSER_MODELS = [
   {
-    id: DEFAULT_MODEL,
-    label: 'Claude Opus 4.8 (AgentRouter)',
-    description: 'Anthropic Claude Opus 4.8 via AgentRouter — powerful cloud AI',
+    id: 'claude-opus-5',
+    label: 'Claude Opus 5 (AgentRouter)',
+    description: 'Anthropic Claude Opus 5 via AgentRouter — flagship creative intelligence & storytelling depth',
+    vram: 'Cloud',
+  },
+  {
+    id: 'gpt-5.6-sol',
+    label: 'GPT-5.6 Sol (AgentRouter)',
+    description: 'OpenAI GPT-5.6 Sol via AgentRouter — versatile, high-speed drafting & nuanced prose',
+    vram: 'Cloud',
+  },
+  {
+    id: 'deepseek-v4-flash',
+    label: 'DeepSeek V4 Flash (AgentRouter)',
+    description: 'DeepSeek V4 Flash via AgentRouter — lightning-fast ideation, planning, and scene drafting',
+    vram: 'Cloud',
+  },
+  {
+    id: 'glm-5.3',
+    label: 'GLM 5.3 (AgentRouter)',
+    description: 'GLM 5.3 via AgentRouter — powerful multilingual narrative architecture',
     vram: 'Cloud',
   },
 ];

@@ -17,9 +17,24 @@ const ModelSelectionModal: React.FC<ModelSelectionModalProps> = ({
   // Available Agent Router models
   const models = [
     { 
-      id: 'claude-opus-4-8', 
-      name: 'Claude Opus 4.8 (AgentRouter)',
-      description: 'Most powerful model for nuanced creative writing, deep prose texture, and complex storytelling'
+      id: 'claude-opus-5', 
+      name: 'Claude Opus 5 (AgentRouter)',
+      description: 'Anthropic flagship model for nuanced creative writing, deep prose texture, and complex storytelling'
+    },
+    { 
+      id: 'gpt-5.6-sol', 
+      name: 'GPT-5.6 Sol (AgentRouter)',
+      description: 'OpenAI flagship model for versatile drafting, vivid character voice, and rapid pacing'
+    },
+    { 
+      id: 'deepseek-v4-flash', 
+      name: 'DeepSeek V4 Flash (AgentRouter)',
+      description: 'Ultra-fast model optimized for responsive outlining, scene idea generation, and agile writing'
+    },
+    { 
+      id: 'glm-5.3', 
+      name: 'GLM 5.3 (AgentRouter)',
+      description: 'Advanced model for rich worldbuilding and intricate narrative structures'
     },
   ];
 

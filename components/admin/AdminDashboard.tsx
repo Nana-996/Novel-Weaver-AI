@@ -708,7 +708,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ isOpen, onClose,
                           <CpuChipIcon className="w-5 h-5 text-warm" />
                           <div>
                             <p className="text-xs font-medium text-parchment">AI Router Gateway</p>
-                            <p className="text-[10px] text-parchment-faint">Opus 4.8 / Claude 3.7 / GPT-4o</p>
+                            <p className="text-[10px] text-parchment-faint">Claude Opus 5 / GPT-5.6 / DeepSeek</p>
                           </div>
                         </div>
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sage/10 text-sage">
