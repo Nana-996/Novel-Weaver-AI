@@ -1,6 +1,4 @@
-export const config = {
-  runtime: 'edge',
-};
+export const maxDuration = 60;
 
 import { createClient } from '@supabase/supabase-js';
 import { AGENTROUTER_API_KEY, AGENTROUTER_BASE_URL, DEFAULT_MODEL, getAgentRouterHeaders } from './agentrouter-config.js';

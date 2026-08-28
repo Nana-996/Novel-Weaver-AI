@@ -258,6 +258,22 @@ class BackendChatImpl implements GeminiChat {
     // Track usage locally (server also tracks, but this gives immediate UI feedback)
     incrementLocalUsage();
 
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const json = await response.json();
+      if (json.error) {
+        const errMsg = typeof json.error === 'string' ? json.error : json.error.message || 'AI generation error';
+        throw new Error(errMsg);
+      }
+      const text = json.choices?.[0]?.message?.content || json.choices?.[0]?.delta?.content || json.choices?.[0]?.text || json.text || json.content || '';
+      if (text) {
+        yield { text };
+      } else {
+        throw new Error('The AI returned an empty response.');
+      }
+      return;
+    }
+
     const reader = response.body?.getReader();
     if (!reader) {
       throw new Error('No response stream available');
@@ -265,6 +281,33 @@ class BackendChatImpl implements GeminiChat {
 
     const decoder = new TextDecoder();
     let buffer = '';
+    let yieldedCount = 0;
+
+    const parseLineAndYield = (line: string): string | null => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed === 'data: [DONE]' || trimmed === '[DONE]' || trimmed === ': ping') return null;
+
+      let dataStr = trimmed;
+      if (trimmed.startsWith('data:')) {
+        dataStr = trimmed.replace(/^data:\s*/, '').trim();
+      }
+
+      if (!dataStr || dataStr === 'null' || dataStr === '[DONE]') return null;
+
+      try {
+        const json = JSON.parse(dataStr);
+        if (json.error) {
+          const errMsg = typeof json.error === 'string' ? json.error : json.error.message || 'AI generation error';
+          throw new Error(errMsg);
+        }
+        return json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.message?.content ?? json.choices?.[0]?.text ?? null;
+      } catch (e: any) {
+        if (e.message && !e.message.includes('JSON')) {
+          throw e;
+        }
+        return null;
+      }
+    };
 
     try {
       while (true) {
@@ -280,54 +323,25 @@ class BackendChatImpl implements GeminiChat {
         buffer = lines.pop() || ''; // Keep incomplete line in buffer
 
         for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || trimmed === 'data: [DONE]' || trimmed === ': ping') continue;
-          if (!trimmed.startsWith('data: ')) continue;
-
-          try {
-            const dataStr = trimmed.slice(6).trim();
-            if (!dataStr || dataStr === 'null' || dataStr === '[DONE]') continue;
-            const json = JSON.parse(dataStr);
-            if (json.error) {
-              const errMsg = typeof json.error === 'string' ? json.error : json.error.message || 'AI generation error';
-              throw new Error(errMsg);
-            }
-            const content = json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.message?.content ?? json.choices?.[0]?.text;
-            if (content) {
-              yield { text: content };
-            }
-          } catch (e: any) {
-            if (e.message && !e.message.includes('JSON')) {
-              throw e;
-            }
-            // Skip malformed JSON chunks
+          const content = parseLineAndYield(line);
+          if (content) {
+            yieldedCount += content.length;
+            yield { text: content };
           }
         }
       }
 
       // Process any remaining buffer
-      if (buffer.trim() && buffer.trim() !== 'data: [DONE]' && buffer.trim() !== ': ping') {
-        const trimmed = buffer.trim();
-        if (trimmed.startsWith('data: ')) {
-          try {
-            const dataStr = trimmed.slice(6).trim();
-            if (dataStr && dataStr !== 'null' && dataStr !== '[DONE]') {
-              const json = JSON.parse(dataStr);
-              if (json.error) {
-                const errMsg = typeof json.error === 'string' ? json.error : json.error.message || 'AI generation error';
-                throw new Error(errMsg);
-              }
-              const content = json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.message?.content ?? json.choices?.[0]?.text;
-              if (content) {
-                yield { text: content };
-              }
-            }
-          } catch (e: any) {
-            if (e.message && !e.message.includes('JSON')) {
-              throw e;
-            }
-          }
+      if (buffer.trim()) {
+        const content = parseLineAndYield(buffer.trim());
+        if (content) {
+          yieldedCount += content.length;
+          yield { text: content };
         }
+      }
+
+      if (yieldedCount === 0 && !params.abortSignal?.aborted) {
+        throw new Error('The AI returned an empty response. Please check your network and API key settings.');
       }
     } finally {
       reader.releaseLock();
